@@ -1,11 +1,12 @@
 // VendorModal — in-dungeon wandering vendor popup
-// Three services:
-//   1. Wandering Vendor — buy gear/materials, selective stat reroll (one-time), material merge (one-time)
-//   2. Fence — buy your bag gear at rip-off prices (convenient, not worth it)
+// Services (mutually exclusive per visit):
+//   REROLL — selective stat reroll on any gear piece
+//   MERGE  — compress material stacks AND Enhancement XP stacks
+// Fence is now a SEPARATE standalone vendor (FenceModal)
 // Design: retro pixel aesthetic, gold-bordered dark modal
 
 import { useState, useMemo } from "react";
-import type { GameState, GameActions, GearItem, MaterialItem, MaterialType } from "@/hooks/useGameState";
+import type { GameState, GameActions, GearItem, MaterialItem, MaterialType, EnhancementXpItem } from "@/hooks/useGameState";
 import {
   RARITY_COLORS,
   RARITY_LABELS,
@@ -16,7 +17,8 @@ import {
   VENDOR_REROLL_TIER_MULT,
   VENDOR_REROLL_RARITY_MULT,
   VENDOR_MERGE_COST_PER_UNIT,
-  FENCE_SELL_MULT,
+  ENH_XP_MERGE_COST_PER_LEVEL,
+  ENH_XP_MERGE_CAP,
 } from "@/hooks/useGameState";
 
 interface Props {
@@ -24,9 +26,9 @@ interface Props {
   actions: GameActions;
 }
 
-type VendorSection = "shop" | "reroll" | "merge" | "fence";
+type VendorSection = "shop" | "reroll" | "merge";
 
-const MERGE_CAP = 25;
+const MAT_MERGE_CAP = 25;
 
 const s = {
   sectionTitle: {
@@ -77,6 +79,13 @@ export default function VendorModal({ state, actions }: Props) {
   const [rerollStatIndices, setRerollStatIndices] = useState<Set<number>>(new Set());
   const [rerollConfirm, setRerollConfirm] = useState(false);
 
+  const bagGear = useMemo(() =>
+    state.bag
+      .map((b, i) => ({ item: b, idx: i }))
+      .filter((x): x is { item: GearItem; idx: number } => !!x.item && 'isGear' in x.item),
+    [state.bag]
+  );
+
   const rerollGear: GearItem | null = useMemo(() => {
     if (!rerollGearId) return null;
     const fromBag = state.bag.find((b) => b && 'isGear' in b && (b as GearItem).id === rerollGearId) as GearItem | undefined;
@@ -116,48 +125,51 @@ export default function VendorModal({ state, actions }: Props) {
     }
   }
 
-  // ── Merge preview ─────────────────────────────────────────────────────────
-  const mergePreview = useMemo(() => {
+  // ── Merge preview — materials ──────────────────────────────────────────────
+  const matMergePreview = useMemo(() => {
     const matSlots: { item: MaterialItem }[] = [];
     state.bag.forEach((b) => { if (b && 'isMaterial' in b) matSlots.push({ item: b as MaterialItem }); });
     const grouped: Partial<Record<MaterialType, number>> = {};
     matSlots.forEach(({ item }) => { grouped[item.type] = (grouped[item.type] ?? 0) + item.qty; });
     let totalCost = 0;
-    let totalUnits = 0;
     let slotsBefore = matSlots.length;
     let slotsAfter = 0;
     (Object.keys(grouped) as MaterialType[]).forEach((t) => {
       const qty = grouped[t]!;
       totalCost += qty * VENDOR_MERGE_COST_PER_UNIT[t];
-      totalUnits += qty;
-      slotsAfter += Math.ceil(qty / MERGE_CAP);
+      slotsAfter += Math.ceil(qty / MAT_MERGE_CAP);
     });
-    return { grouped, totalCost: Math.ceil(totalCost), totalUnits, slotsBefore, slotsAfter, slotsSaved: slotsBefore - slotsAfter };
+    return { grouped, totalCost: Math.ceil(totalCost), slotsBefore, slotsAfter, slotsSaved: slotsBefore - slotsAfter };
   }, [state.bag]);
 
-  // ── Fence: bag gear ───────────────────────────────────────────────────────
-  const bagGear = useMemo(() =>
-    state.bag
-      .map((b, i) => ({ item: b, idx: i }))
-      .filter((x): x is { item: GearItem; idx: number } => !!x.item && 'isGear' in x.item),
-    [state.bag]
-  );
+  // ── Merge preview — Enhancement XP ────────────────────────────────────────
+  const enhXpMergePreview = useMemo(() => {
+    const enhSlots: EnhancementXpItem[] = [];
+    state.bag.forEach((b) => { if (b && 'isEnhXp' in b) enhSlots.push(b as unknown as EnhancementXpItem); });
+    const grouped: Partial<Record<number, number>> = {};
+    enhSlots.forEach((item) => { grouped[item.level] = (grouped[item.level] ?? 0) + item.qty; });
+    let totalCost = 0;
+    let slotsBefore = enhSlots.length;
+    let slotsAfter = 0;
+    (Object.keys(grouped) as unknown as number[]).forEach((lvl) => {
+      const qty = grouped[lvl]!;
+      totalCost += qty * ENH_XP_MERGE_COST_PER_LEVEL[lvl];
+      slotsAfter += Math.ceil(qty / ENH_XP_MERGE_CAP);
+    });
+    return { grouped, totalCost: Math.ceil(totalCost), slotsBefore, slotsAfter, slotsSaved: slotsBefore - slotsAfter };
+  }, [state.bag]);
 
-  function fencePrice(gear: GearItem): number {
-    const base = { scrap: 10, common: 30, uncommon: 60, rare: 120, epic: 250, legendary: 500, mythic: 1000 }[gear.rarity];
-    return Math.max(1, Math.floor((base + gear.stats.length * 5) * FENCE_SELL_MULT));
-  }
+  const totalMergeCost = matMergePreview.totalCost + enhXpMergePreview.totalCost;
+  const hasMergeable = matMergePreview.slotsBefore > 1 || enhXpMergePreview.slotsBefore > 1;
 
-  // ── Determine which service this vendor offers (reroll or merge, never both) ──
+  // ── Determine which service this vendor offers ─────────────────────────────
   const hasReroll = vendor.items.some((i) => i.type === "reroll");
   const hasMerge = vendor.items.some((i) => i.type === "merge");
 
-  // ── Nav tabs ──────────────────────────────────────────────────────────────
   const tabs: { id: VendorSection; label: string; emoji: string }[] = [
     { id: "shop",   label: "SHOP",   emoji: "🛒" },
     ...(hasReroll ? [{ id: "reroll" as VendorSection, label: "REROLL", emoji: "🎲" }] : []),
     ...(hasMerge  ? [{ id: "merge"  as VendorSection, label: "MERGE",  emoji: "📦" }] : []),
-    { id: "fence",  label: "FENCE",  emoji: "💸" },
   ];
 
   return (
@@ -255,7 +267,6 @@ export default function VendorModal({ state, actions }: Props) {
                     Pick a gear piece, then select which stats to reroll. Cost scales by tier, rarity, and stat count.
                   </div>
 
-                  {/* Gear picker (bag + stash) */}
                   {!rerollGear ? (
                     <div>
                       <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#666", marginBottom: 6 }}>BAG GEAR</div>
@@ -283,7 +294,6 @@ export default function VendorModal({ state, actions }: Props) {
                     </div>
                   ) : (
                     <div>
-                      {/* Selected gear header */}
                       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "rgba(255,170,0,0.06)", border: `1px solid ${TIER_COLORS[rerollGear.tier]}`, borderRadius: 4, marginBottom: 10 }}>
                         <span style={{ fontSize: 22 }}>{rerollGear.emoji}</span>
                         <div style={{ flex: 1 }}>
@@ -293,7 +303,6 @@ export default function VendorModal({ state, actions }: Props) {
                         <button onClick={() => { setRerollGearId(null); setRerollStatIndices(new Set()); setRerollConfirm(false); }} style={{ fontFamily: "'VT323', monospace", fontSize: 13, background: "none", border: "1px solid #444", color: "#888", padding: "3px 7px", cursor: "pointer", borderRadius: 3 }}>✕</button>
                       </div>
 
-                      {/* Stat checkboxes */}
                       <div style={{ ...s.muted, marginBottom: 6 }}>Select stats to reroll:</div>
                       {rerollGear.stats.map((st, i) => {
                         const checked = rerollStatIndices.has(i);
@@ -307,7 +316,6 @@ export default function VendorModal({ state, actions }: Props) {
                         );
                       })}
 
-                      {/* Cost preview + confirm */}
                       <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: rerollCost > 0 ? "#ffcc44" : "#555" }}>
                           Cost: {rerollCost > 0 ? `${rerollCost}g` : "—"}
@@ -337,86 +345,101 @@ export default function VendorModal({ state, actions }: Props) {
                 </div>
               ) : (
                 <>
-                  <div style={s.sectionTitle}>📦 COMPRESS MATERIALS</div>
+                  <div style={s.sectionTitle}>📦 COMPRESS STACKS</div>
                   <div style={{ ...s.muted, marginBottom: 10 }}>
-                    Merges all material stacks in your bag into stacks of up to {MERGE_CAP}, freeing bag slots. Expensive but saves space.
+                    Merges material stacks (up to {MAT_MERGE_CAP}) and Enhancement XP stacks (up to {ENH_XP_MERGE_CAP}) in your bag, freeing slots.
                   </div>
 
-                  {mergePreview.slotsBefore <= 1 ? (
-                    <div style={s.muted}>No material stacks to merge (need 2+)</div>
+                  {!hasMergeable ? (
+                    <div style={s.muted}>No stacks to merge (need 2+ of same type)</div>
                   ) : (
                     <>
-                      {/* Preview table */}
-                      <div style={{ background: "rgba(0,0,0,0.4)", border: "1px solid #333", borderRadius: 4, padding: "10px 12px", marginBottom: 10 }}>
-                        {(Object.keys(mergePreview.grouped) as MaterialType[]).map((t) => {
-                          const qty = mergePreview.grouped[t]!;
-                          const stacksAfter = Math.ceil(qty / MERGE_CAP);
-                          const cost = Math.ceil(qty * VENDOR_MERGE_COST_PER_UNIT[t]);
-                          return (
-                            <div key={t} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-                              <span style={{ fontSize: 18 }}>{MATERIAL_INFO[t].emoji}</span>
-                              <div style={{ flex: 1, fontFamily: "'VT323', monospace", fontSize: 14, color: "#ccc" }}>
-                                {MATERIAL_INFO[t].label}: {qty} units → {stacksAfter} stack{stacksAfter !== 1 ? "s" : ""}
+                      {/* Materials section */}
+                      {matMergePreview.slotsBefore > 1 && (
+                        <div style={{ background: "rgba(0,0,0,0.4)", border: "1px solid #333", borderRadius: 4, padding: "10px 12px", marginBottom: 10 }}>
+                          <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#888", marginBottom: 6 }}>MATERIALS (→ stacks of {MAT_MERGE_CAP})</div>
+                          {(Object.keys(matMergePreview.grouped) as MaterialType[]).map((t) => {
+                            const qty = matMergePreview.grouped[t]!;
+                            const stacksAfter = Math.ceil(qty / MAT_MERGE_CAP);
+                            const cost = Math.ceil(qty * VENDOR_MERGE_COST_PER_UNIT[t]);
+                            return (
+                              <div key={t} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                                <span style={{ fontSize: 18 }}>{MATERIAL_INFO[t].emoji}</span>
+                                <div style={{ flex: 1, fontFamily: "'VT323', monospace", fontSize: 14, color: "#ccc" }}>
+                                  {MATERIAL_INFO[t].label}: {qty} → {stacksAfter} stack{stacksAfter !== 1 ? "s" : ""}
+                                </div>
+                                <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#ffcc44" }}>{cost}g</div>
                               </div>
-                              <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#ffcc44" }}>{cost}g</div>
-                            </div>
-                          );
-                        })}
-                        <div style={{ borderTop: "1px solid #333", marginTop: 8, paddingTop: 8, display: "flex", justifyContent: "space-between", fontFamily: "'VT323', monospace", fontSize: 14 }}>
-                          <span style={{ color: "#888" }}>Slots: {mergePreview.slotsBefore} → {mergePreview.slotsAfter} <span style={{ color: "#66ff88" }}>(saves {mergePreview.slotsSaved})</span></span>
-                          <span style={{ color: "#ffcc44" }}>Total: {mergePreview.totalCost}g</span>
+                            );
+                          })}
+                          <div style={{ borderTop: "1px solid #333", marginTop: 6, paddingTop: 6, fontFamily: "'VT323', monospace", fontSize: 13, color: "#888" }}>
+                            Slots: {matMergePreview.slotsBefore} → {matMergePreview.slotsAfter} <span style={{ color: "#66ff88" }}>(saves {matMergePreview.slotsSaved})</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Enhancement XP section */}
+                      {enhXpMergePreview.slotsBefore > 1 && (
+                        <div style={{ background: "rgba(0,0,0,0.4)", border: "1px solid #333", borderRadius: 4, padding: "10px 12px", marginBottom: 10 }}>
+                          <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#888", marginBottom: 6 }}>ENHANCEMENT XP (→ stacks of {ENH_XP_MERGE_CAP})</div>
+                          {(Object.keys(enhXpMergePreview.grouped) as unknown as number[]).map((lvl) => {
+                            const qty = enhXpMergePreview.grouped[lvl]!;
+                            const stacksAfter = Math.ceil(qty / ENH_XP_MERGE_CAP);
+                            const cost = Math.ceil(qty * ENH_XP_MERGE_COST_PER_LEVEL[lvl]);
+                            return (
+                              <div key={lvl} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                                <span style={{ fontSize: 18 }}>✨</span>
+                                <div style={{ flex: 1, fontFamily: "'VT323', monospace", fontSize: 14, color: "#ccc" }}>
+                                  Lv.{lvl} Enh XP: {qty} → {stacksAfter} stack{stacksAfter !== 1 ? "s" : ""}
+                                </div>
+                                <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#ffcc44" }}>{cost}g</div>
+                              </div>
+                            );
+                          })}
+                          <div style={{ borderTop: "1px solid #333", marginTop: 6, paddingTop: 6, fontFamily: "'VT323', monospace", fontSize: 13, color: "#888" }}>
+                            Slots: {enhXpMergePreview.slotsBefore} → {enhXpMergePreview.slotsAfter} <span style={{ color: "#66ff88" }}>(saves {enhXpMergePreview.slotsSaved})</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Total cost and action */}
+                      <div style={{ background: "rgba(0,0,0,0.3)", border: "1px solid #444", borderRadius: 4, padding: "10px 12px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ fontFamily: "'VT323', monospace", fontSize: 15, color: "#ffcc44" }}>Total Cost: {totalMergeCost}g</div>
+                        <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#66ff88" }}>
+                          Saves {matMergePreview.slotsSaved + enhXpMergePreview.slotsSaved} slot{matMergePreview.slotsSaved + enhXpMergePreview.slotsSaved !== 1 ? "s" : ""}
                         </div>
                       </div>
 
-                      {state.gold < mergePreview.totalCost && (
+                      {state.gold < totalMergeCost && (
                         <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ff4444", marginBottom: 8 }}>
-                          Need {mergePreview.totalCost - state.gold}g more
+                          Need {totalMergeCost - state.gold}g more
                         </div>
                       )}
-                      <button onClick={actions.vendorMergeMaterials} disabled={state.gold < mergePreview.totalCost} style={s.btn(state.gold >= mergePreview.totalCost, "#88ccff")}>
-                        📦 COMPRESS ({mergePreview.totalCost}g)
-                      </button>
+
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {matMergePreview.slotsBefore > 1 && (
+                          <button
+                            onClick={actions.vendorMergeMaterials}
+                            disabled={state.gold < matMergePreview.totalCost}
+                            style={s.btn(state.gold >= matMergePreview.totalCost, "#88ccff")}
+                          >
+                            📦 MATS ({matMergePreview.totalCost}g)
+                          </button>
+                        )}
+                        {enhXpMergePreview.slotsBefore > 1 && (
+                          <button
+                            onClick={actions.vendorMergeEnhXp}
+                            disabled={state.gold < enhXpMergePreview.totalCost}
+                            style={s.btn(state.gold >= enhXpMergePreview.totalCost, "#cc88ff")}
+                          >
+                            ✨ ENH XP ({enhXpMergePreview.totalCost}g)
+                          </button>
+                        )}
+                      </div>
                     </>
                   )}
                 </>
               )}
-            </div>
-          )}
-
-          {/* ── FENCE ── */}
-          {section === "fence" && (
-            <div>
-              <div style={s.sectionTitle}>💸 THE FENCE</div>
-              <div style={{ ...s.muted, marginBottom: 10 }}>
-                Buys your bag gear on the spot — no trip back to base needed. Prices are terrible (~{Math.round(FENCE_SELL_MULT * 100)}% value), but it's convenient.
-              </div>
-              {bagGear.length === 0 ? (
-                <div style={s.muted}>No gear in bag to sell</div>
-              ) : (
-                bagGear.map(({ item: gear }) => {
-                  const price = fencePrice(gear);
-                  return (
-                    <div key={gear.id} style={{ background: "rgba(0,0,0,0.5)", border: "1px solid #2a2a2a", borderRadius: 4, padding: "9px 12px", display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
-                      <span style={{ fontSize: 20 }}>{gear.emoji}</span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: RARITY_COLORS[gear.rarity], overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{gear.name}</div>
-                        <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#666" }}>{RARITY_LABELS[gear.rarity]} · <span style={{ color: TIER_COLORS[gear.tier] }}>{TIER_LABELS[gear.tier]}</span></div>
-                        {gear.stats.length > 0 && (
-                          <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#555", marginTop: 2 }}>
-                            {gear.stats.map((st) => `+${st.value} ${st.stat}`).join(" · ")}
-                          </div>
-                        )}
-                      </div>
-                      <button onClick={() => actions.vendorSellGear(gear.id)} style={s.btn(true, "#ff8844")}>
-                        💰 {price}g
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-              <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#444", marginTop: 8 }}>
-                ⚠ Fence prices are {Math.round(FENCE_SELL_MULT * 100)}% of base value. Salvage at base for materials instead.
-              </div>
             </div>
           )}
         </div>

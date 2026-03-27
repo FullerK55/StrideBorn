@@ -50,6 +50,13 @@ function loadProfiles(): Profile[] {
       equippedGear: p.equippedGear ?? { helmet: null, gloves: null, chest: null, pants: null, boots: null, backpack: null, weapon: null, ring: null, amulet: null },
       materials: p.materials ?? { crude: 0, refined: 0, tempered: 0, voidmat: 0, celestialmat: 0 },
       runes: p.runes ?? {},
+      bag: Array.isArray(p.bag) ? p.bag : [],
+      bagSize: (p.bagSize as number | undefined) ?? 5,
+      gold: (p.gold as number | undefined) ?? 0,
+      quests: Array.isArray(p.quests) ? p.quests : [],
+      stash: Array.isArray(p.stash) ? p.stash : [],
+      runs: p.runs ?? 0,
+      lives: p.lives ?? 1,
       offlineTimestamp: p.offlineTimestamp ?? null,
       offlineFloor: p.offlineFloor ?? null,
       offlineDungeon: p.offlineDungeon ?? null,
@@ -149,13 +156,17 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   }, [activeProfileId]);
 
   const updateProfileSave = useCallback((data: Partial<Profile>) => {
-    setProfiles((prev) =>
-      prev.map((p) =>
+    setProfiles((prev) => {
+      const updated = prev.map((p) =>
         p.id === activeProfileId
           ? { ...p, ...data, lastPlayed: Date.now() }
           : p
-      )
-    );
+      );
+      // Write to localStorage immediately — do not rely solely on the useEffect
+      // which fires asynchronously and can miss saves on tab close.
+      saveProfiles(updated);
+      return updated;
+    });
   }, [activeProfileId]);
 
   return (

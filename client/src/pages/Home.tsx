@@ -15,6 +15,7 @@ import type { GearItem, MaterialItem } from "@/hooks/useGameState";
 import { MATERIAL_INFO, RARITY_LABELS, TIER_LABELS } from "@/hooks/useGameState";
 import VendorModal from "@/components/VendorModal";
 import AnvilModal from "@/components/AnvilModal";
+import FenceModal from "@/components/FenceModal";
 import ShopTab from "@/components/ShopTab";
 import QuestsTab from "@/components/QuestsTab";
 import EnhanceTab from "@/components/EnhanceTab";
@@ -117,6 +118,7 @@ export default function Home() {
         {/* Vendor Modal — auto-pauses walking */}
         <VendorModal state={state} actions={actions} />
         {state.activeAnvil && <AnvilModal state={state} actions={actions} />}
+        {state.activeFence && <FenceModal state={state} actions={actions} />}
 
         {/* OFFLINE SUMMARY MODAL */}
         {actions.offlineSummary && (
@@ -437,58 +439,58 @@ export default function Home() {
           {activeTab === "stash" && (
             <div>
               <div style={{ fontSize: 13, color: "var(--game-muted)", marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
-                <span>STASH ({state.stash.length}/{state.stashSize} slots)</span>
+                <span>STASH ({state.stash.length} item{state.stash.length !== 1 ? 's' : ''} · unlimited)</span>
                 <span style={{ color: "var(--green)", fontSize: 12 }}>
                   {state.currentFloor === 0 ? "✓ AT BASE" : "return to access"}
                 </span>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 3 }}>
-                {Array.from({ length: state.stashSize }).map((_, i) => {
-                  const item = state.stash[i];
-                  return (
-                    <div
-                      key={i}
-                      title={item ? `${item.name}` : "Empty"}
-                      style={{
-                        background: "#080810",
-                        border: `1px solid ${item ? RARITY_COLORS[item.rarity] ?? "#2a2a4a" : "#2a2a4a"}`,
-                        aspectRatio: "1",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 16,
-                        position: "relative",
-                        opacity: item ? 1 : 0.15,
-                      }}
-                    >
-                      {item ? (
-                        <div style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <span style={{ fontSize: 16 }}>{item.emoji}</span>
-                          {!state.isInDungeon && !state.isReturning && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); actions.salvageGear(item.id); }}
-                              title="Salvage"
-                              style={{
-                                position: "absolute",
-                                bottom: 1,
-                                right: 1,
-                                fontSize: 8,
-                                background: "rgba(0,0,0,0.8)",
-                                border: "none",
-                                color: "#ff6644",
-                                cursor: "pointer",
-                                padding: "1px 2px",
-                                lineHeight: 1,
-                              }}
-                            >
-                              🔨
-                            </button>
-                          )}
-                        </div>
-                      ) : ""}
+                {state.stash.map((item, i) => (
+                  <div
+                    key={item.id ?? i}
+                    title={item.name}
+                    style={{
+                      background: "#080810",
+                      border: `1px solid ${RARITY_COLORS[item.rarity] ?? "#2a2a4a"}`,
+                      aspectRatio: "1",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 16,
+                      position: "relative",
+                    }}
+                  >
+                    <div style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <span style={{ fontSize: 16 }}>{item.emoji}</span>
+                      {!state.isInDungeon && !state.isReturning && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); actions.salvageGear(item.id); }}
+                          title="Salvage"
+                          style={{
+                            position: "absolute",
+                            bottom: 1,
+                            right: 1,
+                            fontSize: 8,
+                            background: "rgba(0,0,0,0.8)",
+                            border: "none",
+                            color: "#ff6644",
+                            cursor: "pointer",
+                            padding: "1px 2px",
+                            lineHeight: 1,
+                          }}
+                        >
+                          🔨
+                        </button>
+                      )}
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
+                {/* Empty placeholder slot to show stash is active */}
+                {state.stash.length === 0 && (
+                  <div style={{ gridColumn: "1 / -1", fontFamily: "'VT323', monospace", fontSize: 14, color: "#444", textAlign: "center", padding: "16px 0" }}>
+                    Stash is empty
+                  </div>
+                )}
               </div>
               {!state.isInDungeon && !state.isReturning && state.stash.length > 0 && (
                 <div style={{ marginTop: 6, fontSize: 11, color: "#555", fontFamily: "'VT323', monospace" }}>

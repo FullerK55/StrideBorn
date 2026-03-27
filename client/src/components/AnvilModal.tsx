@@ -74,10 +74,10 @@ export default function AnvilModal({ state, actions }: Props) {
 
   if (!activeAnvil) return null;
 
-  // Gear items currently in bag (not EnhXp items)
+  // Only show actual gear items (not materials, not EnhXp items)
   const bagGear: { idx: number; gear: GearItem }[] = bag
     .map((b, idx) => ({ idx, b }))
-    .filter(({ b }) => b && !("isEnhXp" in b))
+    .filter(({ b }) => b && 'isGear' in b && (b as GearItem).isGear === true)
     .map(({ idx, b }) => ({ idx, gear: b as GearItem }));
 
   // EnhXp items already in bag

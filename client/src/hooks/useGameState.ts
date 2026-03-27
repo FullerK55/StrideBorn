@@ -318,8 +318,22 @@ export interface Quest {
 }
 
 // Enhancement XP item — produced by the Anvil from gear; usable cross-slot at 10% rate
+// Levels 1-10: each level = 10× the XP of the previous level
+export const ENH_XP_LEVEL_VALUES: Record<number, number> = {
+  1: 1, 2: 10, 3: 100, 4: 1000, 5: 10000,
+  6: 100000, 7: 1000000, 8: 10000000, 9: 100000000, 10: 1000000000,
+};
+export const ENH_XP_MERGE_COST_PER_LEVEL: Record<number, number> = {
+  1: 5, 2: 50, 3: 500, 4: 5000, 5: 50000,
+  6: 500000, 7: 5000000, 8: 50000000, 9: 500000000, 10: 0, // 10 is max
+};
+export const ENH_XP_MERGE_CAP = 5; // max stack size per level
+
 export interface EnhancementXpItem {
-  xp: number;       // XP value stored in this item
+  id: string;
+  xp: number;       // total XP value of this stack
+  level: number;    // 1-10
+  qty: number;      // how many of this level item are stacked (1-5)
   sourceSlot: GearSlot; // slot of the gear it came from (informational)
   isEnhXp: true;
 }
@@ -328,6 +342,11 @@ export type BagItemWithEnhXp = BagItem | EnhancementXpItem;
 
 // Anvil event
 export interface ActiveAnvil {
+  floor: number;
+}
+
+// Fence vendor (standalone — buys gear at rip-off prices)
+export interface ActiveFence {
   floor: number;
 }
 
@@ -396,7 +415,7 @@ export interface GameState {
   bag: (BagItem | null)[];
   bagSize: number;
   stash: GearItem[];
-  stashSize: number;
+  stashSize: number; // 0 = unlimited
   equippedGear: Record<GearSlot, GearItem | null>;
   materials: Materials;
   runes: RuneInventory;
@@ -407,6 +426,7 @@ export interface GameState {
   quests: Quest[];
   activeVendor: ActiveVendor | null;
   activeAnvil: ActiveAnvil | null;
+  activeFence: ActiveFence | null;
 }
 
 export interface OfflineSummary {
@@ -445,6 +465,9 @@ export interface GameActions {
   enhanceGear: (targetId: string, sacrificeGearIds: string[], sacrificeMaterials: Partial<Materials>, sacrificeEnhXpIds?: string[]) => void;
   anvilBreakdown: (gearIds: string[]) => void;
   dismissAnvil: () => void;
+  vendorMergeEnhXp: () => void;
+  fenceSellGear: (gearId: string) => void;
+  dismissFence: () => void;
   log: LogEntry[];
   notification: string | null;
   lootPopups: LootPopup[];
@@ -875,7 +898,7 @@ function buildInitialState(
         : Array((profile.bagSize as number | undefined) ?? BAG_SIZE).fill(null),
     bagSize: (profile.bagSize as number | undefined) ?? BAG_SIZE,
     stash: (profile.stash as GearItem[]) ?? [],
-    stashSize: STASH_SIZE,
+    stashSize: 0, // unlimited
     equippedGear: (profile.equippedGear as Record<GearSlot, GearItem | null>) ?? { ...EMPTY_EQUIPPED },
     materials: (profile.materials as Materials) ?? { ...EMPTY_MATERIALS },
     runes: (profile.runes as RuneInventory) ?? {},
@@ -886,6 +909,7 @@ function buildInitialState(
     quests: (profile as Profile & { quests?: Quest[] }).quests ?? generateDailyQuests(),
     activeVendor: null,
     activeAnvil: null,
+    activeFence: null,
   };
 }
 
@@ -1187,7 +1211,7 @@ export function useGameState(
 
       // Anvil spawn: after floor 100, every 15-25 floors (never same floor as vendor)
       setState((prev) => {
-        if (prev.activeVendor || prev.activeAnvil) return prev; // already paused
+        if (prev.activeVendor || prev.activeAnvil || prev.activeFence) return prev; // already paused
         if (floor > 100) {
           const anvilInterval = 15 + Math.floor(Math.random() * 11);
           if (floor % anvilInterval === 0) {
@@ -1195,6 +1219,21 @@ export function useGameState(
             showNotif(`⚔️ ANVIL ON FLOOR ${floor}!`);
             addLog(`⚔️ A weathered anvil sits on floor ${floor}!`, "log-gem");
             return { ...prev, activeAnvil: { floor } };
+          }
+        }
+        return prev;
+      });
+
+      // Fence spawn: after floor 50, every 20-30 floors (never same floor as vendor or anvil)
+      setState((prev) => {
+        if (prev.activeVendor || prev.activeAnvil || prev.activeFence) return prev;
+        if (floor > 50) {
+          const fenceInterval = 20 + Math.floor(Math.random() * 11);
+          if (floor % fenceInterval === 0) {
+            stopWalkInterval();
+            showNotif(`💸 FENCE ON FLOOR ${floor}!`);
+            addLog(`💸 A shady fence lurks on floor ${floor}...`, "log-muted");
+            return { ...prev, activeFence: { floor } };
           }
         }
         return prev;
@@ -1251,7 +1290,8 @@ export function useGameState(
           matsCollected += mat.qty;
         } else {
           const gear = item as GearItem;
-          if (newStash.length < prev.stashSize) {
+          // stashSize === 0 means unlimited
+          if (prev.stashSize === 0 || newStash.length < prev.stashSize) {
             newStash.push(gear);
             gearStashed++;
           }
@@ -1626,10 +1666,48 @@ export function useGameState(
     });
   }, [addLog, showNotif]);
 
-  // ---- Vendor: fence sells bag gear for gold (rip-off price) ----
-  const vendorSellGear = useCallback((gearId: string) => {
+  // ---- Vendor: merge Enhancement XP items in bag into stacks of 5 ----
+  const vendorMergeEnhXp = useCallback(() => {
     setState((prev) => {
-      if (!prev.activeVendor) return prev;
+      if (!prev.activeVendor || prev.activeVendor.mergeUsed) { showNotif("MERGE ALREADY USED!"); return prev; }
+      // Find all EnhXp items in bag
+      const enhSlots: { idx: number; item: EnhancementXpItem }[] = [];
+      prev.bag.forEach((b, i) => { if (b && 'isEnhXp' in b) enhSlots.push({ idx: i, item: b as unknown as EnhancementXpItem }); });
+      if (enhSlots.length <= 1) { showNotif("NOTHING TO MERGE!"); return prev; }
+      // Group by level
+      const grouped: Partial<Record<number, number>> = {};
+      enhSlots.forEach(({ item }) => { grouped[item.level] = (grouped[item.level] ?? 0) + item.qty; });
+      // Calculate cost
+      let totalCost = 0;
+      (Object.keys(grouped) as unknown as number[]).forEach((lvl) => {
+        totalCost += grouped[lvl]! * ENH_XP_MERGE_COST_PER_LEVEL[lvl];
+      });
+      totalCost = Math.ceil(totalCost);
+      if (prev.gold < totalCost) { showNotif(`NEED ${totalCost}g TO MERGE!`); return prev; }
+      // Build new bag: remove all enhxp slots, re-add merged stacks
+      const newBag: (BagItem | null)[] = [...prev.bag];
+      enhSlots.forEach(({ idx }) => { newBag[idx] = null; });
+      (Object.keys(grouped) as unknown as number[]).forEach((lvl) => {
+        let remaining = grouped[lvl]!;
+        while (remaining > 0) {
+          const stackQty = Math.min(remaining, ENH_XP_MERGE_CAP);
+          const emptySlot = newBag.findIndex((s) => s === null);
+          if (emptySlot === -1) break;
+          const xpPerItem = ENH_XP_LEVEL_VALUES[lvl];
+          const merged: EnhancementXpItem = { id: `enhxp_${Date.now()}_${lvl}_${emptySlot}`, xp: xpPerItem * stackQty, level: Number(lvl), qty: stackQty, sourceSlot: "helmet", isEnhXp: true };
+          newBag[emptySlot] = merged as unknown as BagItem;
+          remaining -= stackQty;
+        }
+      });
+      addLog(`✨ Vendor merged Enhancement XP into stacks of ${ENH_XP_MERGE_CAP} (-${totalCost}g)`, "log-gem");
+      return { ...prev, gold: prev.gold - totalCost, bag: newBag, activeVendor: { ...prev.activeVendor, mergeUsed: true } };
+    });
+  }, [addLog, showNotif]);
+
+  // ---- Fence vendor: buy bag gear at rip-off price (standalone) ----
+  const fenceSellGear = useCallback((gearId: string) => {
+    setState((prev) => {
+      if (!prev.activeFence) return prev;
       const bagIdx = prev.bag.findIndex((b) => b && 'isGear' in b && (b as GearItem).id === gearId);
       if (bagIdx === -1) return prev;
       const gear = prev.bag[bagIdx] as GearItem;
@@ -1641,6 +1719,15 @@ export function useGameState(
       return { ...prev, gold: prev.gold + fencePrice, bag: newBag };
     });
   }, [addLog]);
+
+  const dismissFence = useCallback(() => {
+    setState((prev) => ({ ...prev, activeFence: null }));
+    startWalkInterval();
+    addLog("💸 Fence dismissed. Continuing...", "log-muted");
+  }, [addLog, startWalkInterval]);
+
+  // Keep vendorSellGear for backward compat but it now does nothing (fence is standalone)
+  const vendorSellGear = useCallback((_gearId: string) => {}, []);
 
   const dismissVendor = useCallback(() => {
     setState((prev) => ({ ...prev, activeVendor: null }));
@@ -1874,6 +1961,9 @@ export function useGameState(
       enhanceGear,
       anvilBreakdown,
       dismissAnvil,
+      vendorMergeEnhXp,
+      fenceSellGear,
+      dismissFence,
       log,
       notification,
       lootPopups,

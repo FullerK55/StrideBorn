@@ -184,7 +184,7 @@ export default function SettingsOverlay({ onClose, onSaveNow, state }: SettingsO
                 { emoji: "👣", label: "Total Steps", value: fmtNum(state.totalSteps) },
                 { emoji: "💀", label: "Lives Remaining", value: fmtNum(state.lives) },
                 { emoji: "💰", label: "Gold on Hand", value: fmtNum(state.gold) },
-                { emoji: "📦", label: "Stash Items", value: `${state.stash.length} / ${state.stashSize}` },
+                { emoji: "📦", label: "Stash Items", value: `${fmtNum(state.stash.length)} (∞)` },
               ].map((row) => (
                 <div key={row.label} style={{
                   background: "#0a0a1a",
