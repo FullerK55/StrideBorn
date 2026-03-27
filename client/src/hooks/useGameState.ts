@@ -567,6 +567,20 @@ function buildInitialState(
 }
 
 // ============================================================
+// GEAR STAT HELPERS
+// ============================================================
+
+/** Sum a named stat across all equipped gear pieces */
+export function getEquippedStatTotal(equippedGear: Record<GearSlot, GearItem | null>, statName: string): number {
+  return GEAR_SLOTS.reduce((total, slot) => {
+    const piece = equippedGear[slot.id];
+    if (!piece) return total;
+    const found = piece.stats.find((s) => s.stat === statName);
+    return total + (found ? found.value : 0);
+  }, 0);
+}
+
+// ============================================================
 // HOOK
 // ============================================================
 
@@ -734,12 +748,20 @@ export function useGameState(
   }, []);
 
   function tickSteps(prev: GameState, n: number): GameState {
-    const next = { ...prev, totalSteps: prev.totalSteps + n };
+    // Apply Step Efficiency bonus from equipped gear
+    const stepEfficiency = getEquippedStatTotal(prev.equippedGear, 'Steps Efficiency');
+    const effectiveSteps = Math.round(n * (1 + stepEfficiency / 100));
+
+    // Apply Bag Slots bonus — recalculate bagSize dynamically
+    const bagSlotBonus = Math.floor(getEquippedStatTotal(prev.equippedGear, 'Bag Slots'));
+    const newBagSize = BAG_SIZE + bagSlotBonus;
+
+    const next = { ...prev, totalSteps: prev.totalSteps + effectiveSteps, bagSize: newBagSize };
     if (prev.isReturning) {
-      const walked = prev.returnStepsWalked + n;
+      const walked = prev.returnStepsWalked + effectiveSteps;
       return { ...next, returnStepsWalked: walked };
     }
-    const newSteps = prev.steps + n;
+    const newSteps = prev.steps + effectiveSteps;
     if (newSteps >= prev.stepsToNextFloor) {
       return { ...next, steps: newSteps - prev.stepsToNextFloor, currentFloor: prev.currentFloor + 1 };
     }
