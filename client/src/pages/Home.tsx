@@ -1,7 +1,6 @@
 // Stride Born — Main Game Page
 // Design: Neo-Retro Pixel RPG — dark dungeon terminal, idle walking mechanic
-// Character always walks automatically once in dungeon; player decides when to enter/return
-// Profile-aware: shows active profile name and switch profile button
+// Tabs: Bag | Stash | Gear | Materials | Craft | Dungeons | Log
 
 import { useState } from "react";
 import { useGameState, DUNGEONS, RARITY_COLORS } from "@/hooks/useGameState";
@@ -9,8 +8,23 @@ import { useProfile } from "@/contexts/ProfileContext";
 import DungeonScene from "@/components/DungeonScene";
 import SettingsOverlay from "@/components/SettingsOverlay";
 import OfflineSummary from "@/components/OfflineSummary";
+import GearTab from "@/components/GearTab";
+import MaterialsTab from "@/components/MaterialsTab";
+import CraftTab from "@/components/CraftTab";
+import type { GearItem, MaterialItem } from "@/hooks/useGameState";
+import { MATERIAL_INFO } from "@/hooks/useGameState";
 
-type Tab = "bag" | "stash" | "gear" | "dungeons" | "log";
+type Tab = "bag" | "stash" | "gear" | "materials" | "craft" | "dungeons" | "log";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "bag", label: "BAG" },
+  { id: "stash", label: "STASH" },
+  { id: "gear", label: "GEAR" },
+  { id: "materials", label: "MATS" },
+  { id: "craft", label: "CRAFT" },
+  { id: "dungeons", label: "MAP" },
+  { id: "log", label: "LOG" },
+];
 
 export default function Home() {
   const { activeProfile, updateProfileSave, setSwitchingProfile } = useProfile();
@@ -18,7 +32,6 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>("bag");
   const [showSettings, setShowSettings] = useState(false);
 
-  const dungeon = state.dungeons.find((d) => d.id === state.currentDungeon) ?? state.dungeons[0];
   const isActive = state.isInDungeon || state.isReturning;
 
   // Progress bar values
@@ -119,13 +132,7 @@ export default function Home() {
           </div>
 
           {/* Profile info + switch button */}
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
-            marginTop: 6,
-          }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 6 }}>
             <span style={{ fontSize: 16, color: "var(--gem)" }}>
               {activeProfile?.avatar} {activeProfile?.name}
             </span>
@@ -258,7 +265,6 @@ export default function Home() {
 
           {/* Action buttons */}
           <div style={{ display: "flex", gap: 8 }}>
-            {/* Enter Dungeon / (active state placeholder) */}
             {!isActive ? (
               <button
                 onClick={actions.enterDungeon}
@@ -278,17 +284,18 @@ export default function Home() {
                 ▶ ENTER DUNGEON
               </button>
             ) : (
-              <div style={{
-                flex: 2,
-                border: "3px solid var(--health)",
-                color: "var(--health)",
-                fontFamily: "'Press Start 2P', monospace",
-                fontSize: 10,
-                padding: 12,
-                textAlign: "center",
-                letterSpacing: 2,
-              }}
-              className="animate-btn-pulse"
+              <div
+                style={{
+                  flex: 2,
+                  border: "3px solid var(--health)",
+                  color: "var(--health)",
+                  fontFamily: "'Press Start 2P', monospace",
+                  fontSize: 10,
+                  padding: 12,
+                  textAlign: "center",
+                  letterSpacing: 2,
+                }}
+                className="animate-btn-pulse"
               >
                 {state.isReturning ? "🏃 RETURNING..." : "⚔ DELVING..."}
               </div>
@@ -331,36 +338,52 @@ export default function Home() {
                 letterSpacing: 0.5,
               }}
             >
-              🗺 DUNGEON
+              🗺 MAP
             </button>
           </div>
         </div>
 
         {/* MAIN TABBED PANEL */}
         <div className="game-panel" style={{ padding: 12, flex: 1 }}>
-          {/* Tabs */}
-          <div style={{ display: "flex", borderBottom: "2px solid var(--game-border)", marginBottom: 10 }}>
-            {(["bag", "stash", "gear", "dungeons", "log"] as Tab[]).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className="pixel-font"
-                style={{
-                  fontSize: 7,
-                  padding: "8px 10px",
-                  color: activeTab === tab ? "var(--gold)" : "var(--game-muted)",
-                  cursor: "pointer",
-                  borderBottom: `2px solid ${activeTab === tab ? "var(--gold)" : "transparent"}`,
-                  marginBottom: -2,
-                  background: "none",
-                  border: "none",
-                  letterSpacing: 0.5,
-                  transition: "color 0.15s",
-                }}
-              >
-                {tab.toUpperCase()}
-              </button>
-            ))}
+          {/* Tabs — scrollable row */}
+          <div style={{
+            display: "flex",
+            overflowX: "auto",
+            borderBottom: "2px solid var(--game-border)",
+            marginBottom: 10,
+            scrollbarWidth: "none",
+          }}>
+            {TABS.map((tab) => {
+              const isBaseOnly = tab.id === "materials" || tab.id === "craft";
+              const locked = isBaseOnly && isActive;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => !locked && setActiveTab(tab.id)}
+                  className="pixel-font"
+                  style={{
+                    fontSize: 7,
+                    padding: "8px 10px",
+                    color: activeTab === tab.id ? "var(--gold)" : locked ? "#444" : "var(--game-muted)",
+                    cursor: locked ? "not-allowed" : "pointer",
+                    borderBottom: `2px solid ${activeTab === tab.id ? "var(--gold)" : "transparent"}`,
+                    marginBottom: -2,
+                    background: "none",
+                    border: "none",
+                    borderBottomWidth: 2,
+                    borderBottomStyle: "solid",
+                    borderBottomColor: activeTab === tab.id ? "var(--gold)" : "transparent",
+                    letterSpacing: 0.5,
+                    transition: "color 0.15s",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                    opacity: locked ? 0.4 : 1,
+                  }}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
           </div>
 
           {/* BAG TAB */}
@@ -373,14 +396,23 @@ export default function Home() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4 }}>
                 {Array.from({ length: state.bagSize }).map((_, i) => {
                   const item = state.bag[i];
+                  const isGear = item && 'isGear' in item && (item as GearItem).isGear;
+                  const isMat = item && 'isMaterial' in item && (item as MaterialItem).isMaterial;
+                  const borderColor = item
+                    ? isGear
+                      ? RARITY_COLORS[(item as GearItem).rarity] ?? "var(--game-border)"
+                      : isMat
+                        ? "#888"
+                        : RARITY_COLORS[(item as any).rarity] ?? "var(--game-border)"
+                    : "var(--game-border)";
                   return (
                     <div
                       key={i}
                       onClick={() => item && actions.dropBagItem(i)}
-                      title={item ? `${item.name} [${item.rarity}]\nTap to drop` : "Empty"}
+                      title={item ? `${isGear ? (item as GearItem).name : (item as MaterialItem).type}\nTap to drop` : "Empty"}
                       style={{
                         background: "#0a0a1a",
-                        border: `2px solid ${item ? RARITY_COLORS[item.rarity] ?? "var(--game-border)" : "var(--game-border)"}`,
+                        border: `2px solid ${borderColor}`,
                         aspectRatio: "1",
                         display: "flex",
                         alignItems: "center",
@@ -390,17 +422,27 @@ export default function Home() {
                         cursor: item ? "pointer" : "default",
                         opacity: item ? 1 : 0.3,
                         transition: "border-color 0.15s",
+                        flexDirection: "column",
+                        gap: 1,
                       }}
                     >
-                      {item ? item.emoji : "·"}
-                      {item && item.qty && item.qty > 1 && (
-                        <span style={{ position: "absolute", bottom: 1, right: 3, fontSize: 12, color: "var(--gold)", lineHeight: 1 }}>
-                          {item.qty}
+                      {item ? (isGear ? (item as GearItem).emoji : (item as MaterialItem).isMaterial ? MATERIAL_INFO[(item as MaterialItem).type]?.emoji ?? "📦" : "📦") : "·"}
+                      {item && isMat && (item as MaterialItem).qty > 1 && (
+                        <span style={{ position: "absolute", bottom: 1, right: 3, fontSize: 11, color: "var(--gold)", lineHeight: 1 }}>
+                          {(item as MaterialItem).qty}
+                        </span>
+                      )}
+                      {item && isGear && (
+                        <span style={{ position: "absolute", bottom: 1, left: 2, fontSize: 8, color: RARITY_COLORS[(item as GearItem).rarity], lineHeight: 1, fontFamily: "'Press Start 2P', monospace" }}>
+                          {(item as GearItem).rarity.slice(0, 1).toUpperCase()}
                         </span>
                       )}
                     </div>
                   );
                 })}
+              </div>
+              <div style={{ marginTop: 8, fontSize: 11, color: "#555", fontFamily: "'VT323', monospace" }}>
+                Gear: tap in Gear tab to equip. Materials: auto-sorted to Mats tab at base.
               </div>
             </div>
           )}
@@ -420,7 +462,7 @@ export default function Home() {
                   return (
                     <div
                       key={i}
-                      title={item ? `${item.name} x${item.qty || 1}` : "Empty"}
+                      title={item ? `${item.name}` : "Empty"}
                       style={{
                         background: "#080810",
                         border: `1px solid ${item ? RARITY_COLORS[item.rarity] ?? "#2a2a4a" : "#2a2a4a"}`,
@@ -434,11 +476,6 @@ export default function Home() {
                       }}
                     >
                       {item ? item.emoji : ""}
-                      {item && item.qty && item.qty > 1 && (
-                        <span style={{ position: "absolute", bottom: 1, right: 2, fontSize: 10, color: "var(--gold)", lineHeight: 1 }}>
-                          {item.qty}
-                        </span>
-                      )}
                     </div>
                   );
                 })}
@@ -448,37 +485,17 @@ export default function Home() {
 
           {/* GEAR TAB */}
           {activeTab === "gear" && (
-            <div>
-              <div style={{ fontSize: 13, color: "var(--game-muted)", marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
-                <span>EQUIPPED GEAR</span>
-                <span style={{ color: "var(--gem)", fontSize: 12 }}>steps/floor bonus: 1.0x</span>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
-                {[
-                  { name: "HELMET", emoji: "⛑️", bonus: "+DEF 2" },
-                  { name: "ARMOR", emoji: "🥋", bonus: "+DEF 5" },
-                  { name: "WEAPON", emoji: "⚔️", bonus: "+ATK 4" },
-                  { name: "BOOTS", emoji: "👢", bonus: "+0.1x steps", bonusColor: "var(--gold)" },
-                  { name: "RING", emoji: "💍", bonus: "+LUCK 1" },
-                  { name: "AMULET", emoji: "📿", bonus: "+HP 10" },
-                ].map((g) => (
-                  <div key={g.name} style={{
-                    background: "#0a0a1a",
-                    border: "2px solid var(--game-border)",
-                    padding: 8,
-                    textAlign: "center",
-                  }}>
-                    <span style={{ fontSize: 11, color: "var(--game-muted)", display: "block", marginBottom: 4 }}>{g.name}</span>
-                    <div style={{ fontSize: 24 }}>{g.emoji}</div>
-                    <span style={{ fontSize: 11, color: g.bonusColor ?? "var(--green)", display: "block", marginTop: 2 }}>{g.bonus}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="px-divider" style={{ marginTop: 10 }} />
-              <div style={{ fontSize: 12, color: "var(--game-muted)", marginTop: 8, textAlign: "center" }}>
-                upgrade gear at base using stash materials<br/>better boots = more floors per 1000 steps
-              </div>
-            </div>
+            <GearTab state={state} actions={actions} />
+          )}
+
+          {/* MATERIALS TAB */}
+          {activeTab === "materials" && (
+            <MaterialsTab state={state} />
+          )}
+
+          {/* CRAFT TAB */}
+          {activeTab === "craft" && (
+            <CraftTab state={state} actions={actions} />
           )}
 
           {/* DUNGEONS TAB */}

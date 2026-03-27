@@ -3,8 +3,8 @@
 // Design: Neo-Retro Pixel RPG — shown on login when offline progress was earned
 // ============================================================
 
-import { DUNGEONS, RARITY_COLORS } from "@/hooks/useGameState";
-import type { OfflineSummary as OfflineSummaryType } from "@/hooks/useGameState";
+import { DUNGEONS, RARITY_COLORS, MATERIAL_INFO } from "@/hooks/useGameState";
+import type { OfflineSummary as OfflineSummaryType, GearItem, MaterialItem } from "@/hooks/useGameState";
 
 interface OfflineSummaryProps {
   summary: OfflineSummaryType;
@@ -18,19 +18,24 @@ export default function OfflineSummary({ summary, onClose }: OfflineSummaryProps
   const mins = Math.floor((summary.secondsAway % 3600) / 60);
   const timeLabel = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
 
-  // Group loot by name for display
-  const lootGroups: Record<string, { item: typeof summary.lootFound[0]; count: number }> = {};
+  // Group loot by key for display
+  const lootGroups: Record<string, { emoji: string; name: string; rarity: string; count: number }> = {};
   summary.lootFound.forEach((item) => {
-    if (lootGroups[item.name]) {
-      lootGroups[item.name].count++;
+    const isGear = 'isGear' in item;
+    const key = isGear ? (item as GearItem).id : (item as MaterialItem).type;
+    const emoji = isGear ? (item as GearItem).emoji : MATERIAL_INFO[(item as MaterialItem).type].emoji;
+    const name = isGear ? (item as GearItem).name : MATERIAL_INFO[(item as MaterialItem).type].label;
+    const rarity = isGear ? (item as GearItem).rarity : 'common';
+    if (lootGroups[key]) {
+      lootGroups[key].count++;
     } else {
-      lootGroups[item.name] = { item, count: 1 };
+      lootGroups[key] = { emoji, name, rarity, count: 1 };
     }
   });
   const lootEntries = Object.values(lootGroups).sort((a, b) => {
     const rarityOrder = { legendary: 0, rare: 1, uncommon: 2, common: 3 };
-    return (rarityOrder[a.item.rarity as keyof typeof rarityOrder] ?? 4) -
-           (rarityOrder[b.item.rarity as keyof typeof rarityOrder] ?? 4);
+    return (rarityOrder[a.rarity as keyof typeof rarityOrder] ?? 4) -
+           (rarityOrder[b.rarity as keyof typeof rarityOrder] ?? 4);
   });
 
   return (
@@ -142,20 +147,20 @@ export default function OfflineSummary({ summary, onClose }: OfflineSummaryProps
               maxHeight: 180,
               overflowY: "auto",
             }}>
-              {lootEntries.map(({ item, count }) => (
+              {lootEntries.map(({ emoji, name, rarity, count }) => (
                 <div
-                  key={item.name}
-                  title={`${item.name} x${count} [${item.rarity}]`}
+                  key={name}
+                  title={`${name} x${count} [${rarity}]`}
                   style={{
                     background: "#0a0a1a",
-                    border: `2px solid ${RARITY_COLORS[item.rarity] ?? "var(--game-border)"}`,
+                    border: `2px solid ${RARITY_COLORS[rarity] ?? "var(--game-border)"}`,
                     padding: "6px 4px",
                     textAlign: "center",
                     position: "relative",
                   }}
                 >
-                  <div style={{ fontSize: 22 }}>{item.emoji}</div>
-                  <div style={{ fontSize: 11, color: RARITY_COLORS[item.rarity] ?? "var(--game-muted)" }}>
+                  <div style={{ fontSize: 22 }}>{emoji}</div>
+                  <div style={{ fontSize: 11, color: RARITY_COLORS[rarity] ?? "var(--game-muted)" }}>
                     x{count}
                   </div>
                 </div>

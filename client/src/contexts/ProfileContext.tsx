@@ -18,12 +18,15 @@ export interface Profile {
   deepestFloor: number;
   currentDungeon: string;
   stash: unknown[];
+  equippedGear: unknown; // Record<GearSlot, GearItem | null>
+  materials: unknown;   // Materials
+  runes: unknown;       // RuneInventory
   runs: number;
   lives: number;
   // Offline progress tracking
-  offlineTimestamp: number | null;  // when the profile went offline while in dungeon
-  offlineFloor: number | null;      // floor they were on when they went offline
-  offlineDungeon: string | null;    // dungeon they were in
+  offlineTimestamp: number | null;
+  offlineFloor: number | null;
+  offlineDungeon: string | null;
 }
 
 const PROFILES_KEY = "strideborn_profiles_v1";
@@ -40,6 +43,9 @@ function loadProfiles(): Profile[] {
     // Migrate old profiles that don't have offline fields
     return parsed.map((p: Profile) => ({
       ...p,
+      equippedGear: p.equippedGear ?? { helmet: null, gloves: null, chest: null, pants: null, boots: null, backpack: null, weapon: null, ring: null, amulet: null },
+      materials: p.materials ?? { crude: 0, refined: 0, tempered: 0, voidmat: 0, celestialmat: 0 },
+      runes: p.runes ?? {},
       offlineTimestamp: p.offlineTimestamp ?? null,
       offlineFloor: p.offlineFloor ?? null,
       offlineDungeon: p.offlineDungeon ?? null,
@@ -72,6 +78,9 @@ function createProfile(name: string, avatar: string): Profile {
     deepestFloor: 0,
     currentDungeon: "crystal",
     stash: [],
+    equippedGear: { helmet: null, gloves: null, chest: null, pants: null, boots: null, backpack: null, weapon: null, ring: null, amulet: null },
+    materials: { crude: 0, refined: 0, tempered: 0, voidmat: 0, celestialmat: 0 },
+    runes: {},
     runs: 0,
     lives: 1,
     offlineTimestamp: null,
