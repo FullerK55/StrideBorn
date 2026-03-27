@@ -5,13 +5,21 @@
 // ============================================================
 
 import { useProfile } from "@/contexts/ProfileContext";
+import type { GameState } from "@/hooks/useGameState";
+
+function fmtNum(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
+  return n.toString();
+}
 
 interface SettingsOverlayProps {
   onClose: () => void;
   onSaveNow: () => void;
+  state?: GameState;
 }
 
-export default function SettingsOverlay({ onClose, onSaveNow }: SettingsOverlayProps) {
+export default function SettingsOverlay({ onClose, onSaveNow, state }: SettingsOverlayProps) {
   const { activeProfile, setSwitchingProfile } = useProfile();
 
   function handleSignOut() {
@@ -43,6 +51,8 @@ export default function SettingsOverlay({ onClose, onSaveNow }: SettingsOverlayP
           transform: "translateX(-50%)",
           width: "100%",
           maxWidth: 480,
+          maxHeight: "88vh",
+          overflowY: "auto",
           background: "var(--bg-panel)",
           border: "2px solid var(--game-border)",
           borderBottom: "none",
@@ -148,6 +158,49 @@ export default function SettingsOverlay({ onClose, onSaveNow }: SettingsOverlayP
             Returns to profile select screen.<br />Your progress is auto-saved.
           </div>
         </div>
+
+        {/* DIVIDER */}
+        <div style={{ height: 1, background: "var(--game-border)", margin: "0 16px" }} />
+
+        {/* COMBAT RECORD */}
+        {state && (
+          <div style={{ padding: "14px 16px" }}>
+            <div className="pixel-font" style={{
+              fontSize: 8,
+              color: "var(--gem)",
+              letterSpacing: 2,
+              marginBottom: 12,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}>
+              COMBAT RECORD
+              <span style={{ flex: 1, height: 1, background: "var(--game-border)", display: "block" }} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {[
+                { emoji: "⚔️", label: "Deepest Floor", value: fmtNum(state.deepestFloor) },
+                { emoji: "🗡️", label: "Total Runs", value: fmtNum(state.runs) },
+                { emoji: "👣", label: "Total Steps", value: fmtNum(state.totalSteps) },
+                { emoji: "💀", label: "Lives Remaining", value: fmtNum(state.lives) },
+                { emoji: "💰", label: "Gold on Hand", value: fmtNum(state.gold) },
+                { emoji: "📦", label: "Stash Items", value: `${state.stash.length} / ${state.stashSize}` },
+              ].map((row) => (
+                <div key={row.label} style={{
+                  background: "#0a0a1a",
+                  border: "1px solid var(--game-border)",
+                  padding: "8px 10px",
+                  borderRadius: 3,
+                }}>
+                  <div className="pixel-font" style={{ fontSize: 11, color: "var(--gold)", marginBottom: 2 }}>
+                    {row.emoji} {row.value}
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--game-muted)" }}>{row.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* DIVIDER */}
         <div style={{ height: 1, background: "var(--game-border)", margin: "0 16px" }} />

@@ -135,6 +135,20 @@ export const TIER_COLORS: Record<GearTier, string> = {
   eternal:    "#ffffff",
 };
 
+// Anvil breakdown gold cost per item (scales with tier)
+export const ANVIL_COST_PER_TIER: Record<GearTier, number> = {
+  iron:        50,
+  steel:       120,
+  shadow:      280,
+  void:        600,
+  celestial:   1200,
+  obsidian:    2500,
+  runic:       5000,
+  spectral:    10000,
+  primordial:  20000,
+  eternal:     50000,
+};
+
 // Enhancement XP thresholds per tier upgrade (cost to go from tier N to N+1)
 export const ENHANCE_XP_THRESHOLDS: Partial<Record<GearTier, number>> = {
   iron:       2000,
@@ -1775,6 +1789,10 @@ export function useGameState(
         .filter(Boolean) as { idx: number; gear: GearItem }[];
       if (gearToBreak.length === 0) { showNotif("SELECT GEAR TO BREAK DOWN!"); return prev; }
 
+      // Calculate total gold cost
+      const totalCost = gearToBreak.reduce((sum, { gear }) => sum + ANVIL_COST_PER_TIER[gear.tier], 0);
+      if (prev.gold < totalCost) { showNotif(`NEED ${totalCost}g TO BREAK DOWN!`); return prev; }
+
       const newBag = [...prev.bag];
       let totalXp = 0;
       gearToBreak.forEach(({ idx, gear }) => {
@@ -1783,10 +1801,10 @@ export function useGameState(
         const enhItem = { id: `enhxp_${Date.now()}_${idx}`, xp: enhXp, sourceSlot: gear.slot, isEnhXp: true as const };
         newBag[idx] = enhItem as unknown as BagItem;
         totalXp += enhXp;
-        addLog(`⚔️ Broke down ${gear.name} → ${enhXp} Enhancement XP`, "log-gem");
+        addLog(`⚔️ Broke down ${gear.name} → ${enhXp} Enh XP (-${ANVIL_COST_PER_TIER[gear.tier]}g)`, "log-gem");
       });
       showNotif(`ANVIL: +${totalXp} ENH XP CREATED`);
-      return { ...prev, bag: newBag };
+      return { ...prev, bag: newBag, gold: prev.gold - totalCost };
     });
   }, [addLog, showNotif]);
 

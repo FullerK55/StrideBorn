@@ -12,6 +12,7 @@ import {
   TIER_XP_VALUE,
   RARITY_XP_VALUE,
   GEAR_SLOTS,
+  ANVIL_COST_PER_TIER,
 } from "@/hooks/useGameState";
 
 interface Props {
@@ -98,6 +99,8 @@ export default function AnvilModal({ state, actions }: Props) {
   const selectedGear = bagGear.filter(({ gear }) => selectedIds.has(gear.id));
   const totalEnhXp = selectedGear.reduce((sum, { gear }) => sum + calcEnhXp(gear), 0);
   const totalRawXp = selectedGear.reduce((sum, { gear }) => sum + TIER_XP_VALUE[gear.tier] * RARITY_XP_VALUE[gear.rarity] * 10, 0);
+  const totalGoldCost = selectedGear.reduce((sum, { gear }) => sum + ANVIL_COST_PER_TIER[gear.tier], 0);
+  const canAfford = state.gold >= totalGoldCost;
 
   const handleBreakdown = () => {
     if (selectedIds.size === 0) return;
@@ -169,8 +172,8 @@ export default function AnvilModal({ state, actions }: Props) {
                     <div style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 7, color: "#ff8844" }}>
                       +{enhXp} XP
                     </div>
-                    <div style={{ fontFamily: "'VT323', monospace", fontSize: 11, color: "#555" }}>
-                      ({fullXp} full)
+                    <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#ffcc44" }}>
+                      {ANVIL_COST_PER_TIER[gear.tier]}g
                     </div>
                   </div>
                   <div style={{ width: 14, height: 14, border: `2px solid ${isSelected ? "#ff6622" : "#444"}`, borderRadius: 2, background: isSelected ? "#ff6622" : "transparent", flexShrink: 0 }} />
@@ -204,9 +207,12 @@ export default function AnvilModal({ state, actions }: Props) {
         <div style={{ padding: "12px 16px", borderTop: "1px solid #2a1a0a", flexShrink: 0, display: "flex", flexDirection: "column", gap: 8 }}>
           {selectedIds.size > 0 && (
             <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ff8844", textAlign: "center" }}>
-              {selectedIds.size} item{selectedIds.size > 1 ? "s" : ""} selected →{" "}
+              {selectedIds.size} item{selectedIds.size > 1 ? "s" : ""} →{" "}
               <span style={{ color: "#ffcc44" }}>+{totalEnhXp} Enh XP</span>
-              <span style={{ color: "#555" }}> (from {totalRawXp} full XP)</span>
+              <span style={{ color: "#555" }}> ({totalRawXp} full)</span>
+              {" · "}
+              <span style={{ color: canAfford ? "#ffcc44" : "#ff4422" }}>{totalGoldCost}g</span>
+              {!canAfford && <span style={{ color: "#ff4422" }}> (need {totalGoldCost - state.gold}g more)</span>}
             </div>
           )}
           {confirmed && (
@@ -216,9 +222,9 @@ export default function AnvilModal({ state, actions }: Props) {
           )}
           <div style={{ display: "flex", gap: 8 }}>
             <button
-              style={{ ...s.btn(selectedIds.size > 0, confirmed ? "#ff4422" : "#ff6622"), flex: 1 }}
+              style={{ ...s.btn(selectedIds.size > 0 && canAfford, confirmed ? "#ff4422" : "#ff6622"), flex: 1 }}
               onClick={handleBreakdown}
-              disabled={selectedIds.size === 0}
+              disabled={selectedIds.size === 0 || !canAfford}
             >
               {confirmed ? "⚠ CONFIRM BREAK DOWN" : "BREAK DOWN"}
             </button>

@@ -112,7 +112,7 @@ export default function Home() {
       }}>
 
         {/* SETTINGS OVERLAY */}
-        {showSettings && <SettingsOverlay onClose={() => setShowSettings(false)} onSaveNow={actions.saveNow} />}
+        {showSettings && <SettingsOverlay onClose={() => setShowSettings(false)} onSaveNow={actions.saveNow} state={state} />}
 
         {/* Vendor Modal — auto-pauses walking */}
         <VendorModal state={state} actions={actions} />
@@ -186,28 +186,6 @@ export default function Home() {
               ⚙ SETTINGS
             </button>
           </div>
-        </div>
-
-        {/* STATS ROW */}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {[
-            { val: state.deepestFloor, lbl: "⚔ DEEPEST" },
-            { val: state.totalSteps.toLocaleString(), lbl: "👣 TOTAL" },
-            { val: state.runs, lbl: "🗡 RUNS" },
-            { val: state.lives, lbl: "💀 LIVES" },
-          ].map((s) => (
-            <div key={s.lbl} style={{
-              background: "#0a0a1a",
-              border: "2px solid var(--game-border)",
-              padding: "6px 10px",
-              flex: 1,
-              minWidth: 70,
-              textAlign: "center",
-            }}>
-              <span className="pixel-font" style={{ fontSize: 11, color: "var(--gold)", display: "block" }}>{s.val}</span>
-              <span style={{ fontSize: 12, color: "var(--game-muted)" }}>{s.lbl}</span>
-            </div>
-          ))}
         </div>
 
         {/* DUNGEON SCENE */}
