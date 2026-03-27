@@ -25,6 +25,8 @@ export interface Profile {
   runes: unknown;       // RuneInventory
   runs: number;
   lives: number;
+  gold: number;
+  quests: unknown; // Quest[]
   // Offline progress tracking
   offlineTimestamp: number | null;
   offlineFloor: number | null;
@@ -87,6 +89,8 @@ function createProfile(name: string, avatar: string): Profile {
     runes: {},
     runs: 0,
     lives: 1,
+    gold: 0,
+    quests: [],
     offlineTimestamp: null,
     offlineFloor: null,
     offlineDungeon: null,

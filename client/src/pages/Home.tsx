@@ -14,6 +14,7 @@ import CraftTab from "@/components/CraftTab";
 import type { GearItem, MaterialItem } from "@/hooks/useGameState";
 import { MATERIAL_INFO, RARITY_LABELS, TIER_LABELS } from "@/hooks/useGameState";
 import VendorModal from "@/components/VendorModal";
+import AnvilModal from "@/components/AnvilModal";
 import ShopTab from "@/components/ShopTab";
 import QuestsTab from "@/components/QuestsTab";
 import EnhanceTab from "@/components/EnhanceTab";
@@ -115,6 +116,7 @@ export default function Home() {
 
         {/* Vendor Modal — auto-pauses walking */}
         <VendorModal state={state} actions={actions} />
+        {state.activeAnvil && <AnvilModal state={state} actions={actions} />}
 
         {/* OFFLINE SUMMARY MODAL */}
         {actions.offlineSummary && (

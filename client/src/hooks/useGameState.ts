@@ -303,6 +303,20 @@ export interface Quest {
   expiresAt: number; // timestamp
 }
 
+// Enhancement XP item — produced by the Anvil from gear; usable cross-slot at 10% rate
+export interface EnhancementXpItem {
+  xp: number;       // XP value stored in this item
+  sourceSlot: GearSlot; // slot of the gear it came from (informational)
+  isEnhXp: true;
+}
+
+export type BagItemWithEnhXp = BagItem | EnhancementXpItem;
+
+// Anvil event
+export interface ActiveAnvil {
+  floor: number;
+}
+
 // Vendor types
 export interface VendorItem {
   id: string;
@@ -378,6 +392,7 @@ export interface GameState {
   gold: number;
   quests: Quest[];
   activeVendor: ActiveVendor | null;
+  activeAnvil: ActiveAnvil | null;
 }
 
 export interface OfflineSummary {
@@ -413,7 +428,9 @@ export interface GameActions {
   salvageGear: (gearId: string) => void;
   shopReroll: (gearId: string) => void;
   shopBuyBagSlot: () => void;
-  enhanceGear: (targetId: string, sacrificeGearIds: string[], sacrificeMaterials: Partial<Materials>) => void;
+  enhanceGear: (targetId: string, sacrificeGearIds: string[], sacrificeMaterials: Partial<Materials>, sacrificeEnhXpIds?: string[]) => void;
+  anvilBreakdown: (gearIds: string[]) => void;
+  dismissAnvil: () => void;
   log: LogEntry[];
   notification: string | null;
   lootPopups: LootPopup[];
@@ -780,9 +797,13 @@ export function generateVendorItems(floor: number): VendorItem[] {
   const matQty = 10 + Math.floor(floor / 10);
   const matCost = [20, 50, 100, 200, 400][matIdx];
   items.push({ id: `vi_mat_${Date.now()}`, type: "material", label: `${matQty}x ${MATERIAL_INFO[matType].label}`, emoji: MATERIAL_INFO[matType].emoji, cost: matCost, matType, matQty });
-  // 1 service: reroll or socket
-  const svcCost = 80 + floor * 3;
-  items.push({ id: `vi_svc_${Date.now()}`, type: "reroll", label: "Stat Reroll (any stash item)", emoji: "🎲", cost: svcCost });
+  // 1 service: either reroll OR merge (never both — mutually exclusive per vendor)
+  const offerReroll = Math.random() < 0.5;
+  if (offerReroll) {
+    items.push({ id: `vi_svc_${Date.now()}`, type: "reroll", label: "Selective Stat Reroll", emoji: "🎲", cost: 0 });
+  } else {
+    items.push({ id: `vi_svc_${Date.now()}`, type: "merge", label: "Compress Material Stacks", emoji: "📦", cost: 0 });
+  }
   return items;
 }
 
@@ -833,8 +854,12 @@ function buildInitialState(
     isReturning: false,
     returnStepsNeeded: 0,
     returnStepsWalked: 0,
-    bag: resumeInDungeon && resumeBag.length > 0 ? resumeBag : Array(BAG_SIZE).fill(null),
-    bagSize: BAG_SIZE,
+    bag: resumeInDungeon && resumeBag.length > 0
+      ? resumeBag
+      : Array.isArray(profile.bag) && (profile.bag as unknown[]).length > 0
+        ? (profile.bag as (BagItem | null)[])
+        : Array((profile.bagSize as number | undefined) ?? BAG_SIZE).fill(null),
+    bagSize: (profile.bagSize as number | undefined) ?? BAG_SIZE,
     stash: (profile.stash as GearItem[]) ?? [],
     stashSize: STASH_SIZE,
     equippedGear: (profile.equippedGear as Record<GearSlot, GearItem | null>) ?? { ...EMPTY_EQUIPPED },
@@ -846,6 +871,7 @@ function buildInitialState(
     gold: (profile as Profile & { gold?: number }).gold ?? 0,
     quests: (profile as Profile & { quests?: Quest[] }).quests ?? generateDailyQuests(),
     activeVendor: null,
+    activeAnvil: null,
   };
 }
 
@@ -963,12 +989,16 @@ export function useGameState(
         totalSteps: s.totalSteps,
         deepestFloor: s.deepestFloor,
         currentDungeon: s.currentDungeon,
+        bag: s.bag,
+        bagSize: s.bagSize,
         stash: s.stash,
         equippedGear: s.equippedGear,
         materials: s.materials,
         runes: s.runes,
         runs: s.runs,
         lives: s.lives,
+        gold: s.gold,
+        quests: s.quests,
         ...offlineData,
       });
       setLastSaved(Date.now());
@@ -986,17 +1016,21 @@ export function useGameState(
       totalSteps: s.totalSteps,
       deepestFloor: s.deepestFloor,
       currentDungeon: s.currentDungeon,
+      bag: s.bag,
+      bagSize: s.bagSize,
       stash: s.stash,
       equippedGear: s.equippedGear,
       materials: s.materials,
       runes: s.runes,
       runs: s.runs,
       lives: s.lives,
+      gold: s.gold,
+      quests: s.quests,
       ...offlineData,
     });
     setLastSaved(Date.now());
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.deepestFloor, state.stash, state.runs, state.isInDungeon, state.currentFloor, state.equippedGear, state.materials]);
+  }, [state.deepestFloor, state.stash, state.runs, state.isInDungeon, state.currentFloor, state.equippedGear, state.materials, state.bag, state.gold]);
 
   const addLog = useCallback((text: string, cls = "") => {
     setLog((prev) => [{ id: logIdCounter++, text, cls, timestamp: Date.now() }, ...prev.slice(0, 49)]);
@@ -1133,6 +1167,21 @@ export function useGameState(
           showNotif(`🛒 VENDOR ON FLOOR ${floor}!`);
           addLog(`🛒 A wandering vendor appeared on floor ${floor}!`, "log-gold");
           return { ...prev, activeVendor: { floor, items: vendorItems, rerollUsed: false, mergeUsed: false } };
+        }
+        return prev;
+      });
+
+      // Anvil spawn: after floor 100, every 15-25 floors (never same floor as vendor)
+      setState((prev) => {
+        if (prev.activeVendor || prev.activeAnvil) return prev; // already paused
+        if (floor > 100) {
+          const anvilInterval = 15 + Math.floor(Math.random() * 11);
+          if (floor % anvilInterval === 0) {
+            stopWalkInterval();
+            showNotif(`⚔️ ANVIL ON FLOOR ${floor}!`);
+            addLog(`⚔️ A weathered anvil sits on floor ${floor}!`, "log-gem");
+            return { ...prev, activeAnvil: { floor } };
+          }
         }
         return prev;
       });
@@ -1629,7 +1678,7 @@ export function useGameState(
   }, [addLog, showNotif]);
 
   // ---- Enhancement action (base only) ----
-  const enhanceGear = useCallback((targetId: string, sacrificeGearIds: string[], sacrificeMaterials: Partial<Materials>) => {
+  const enhanceGear = useCallback((targetId: string, sacrificeGearIds: string[], sacrificeMaterials: Partial<Materials>, sacrificeEnhXpIds: string[] = []) => {
     setState((prev) => {
       if (prev.isInDungeon) { showNotif("RETURN TO BASE TO ENHANCE!"); return prev; }
       const target = prev.stash.find((g) => g.id === targetId);
@@ -1637,12 +1686,21 @@ export function useGameState(
       const threshold = ENHANCE_XP_THRESHOLDS[target.tier];
       if (threshold === undefined) { showNotif("ALREADY MAX TIER!"); return prev; }
 
-      // Calculate XP from sacrificed gear
+      // Calculate XP from sacrificed gear (SAME SLOT ONLY — full rate)
       const sacrificeGear = sacrificeGearIds.map((id) => prev.stash.find((g) => g.id === id)).filter(Boolean) as GearItem[];
+      const wrongSlot = sacrificeGear.filter((g) => g.slot !== target.slot);
+      if (wrongSlot.length > 0) { showNotif(`SAME SLOT ONLY! (${target.slot.toUpperCase()})`); return prev; }
       let xpGained = 0;
       sacrificeGear.forEach((g) => {
         xpGained += TIER_XP_VALUE[g.tier] * RARITY_XP_VALUE[g.rarity] * 10;
       });
+
+      // Calculate XP from Enhancement XP items in bag (cross-slot, 10% already baked in)
+      type EnhXpBagItem = EnhancementXpItem & { id: string };
+      const enhXpItems = sacrificeEnhXpIds
+        .map((id) => { const idx = prev.bag.findIndex((b) => b && 'isEnhXp' in b && (b as unknown as EnhXpBagItem).id === id); return idx >= 0 ? { idx, item: prev.bag[idx] as unknown as EnhXpBagItem } : null; })
+        .filter(Boolean) as { idx: number; item: EnhXpBagItem }[];
+      enhXpItems.forEach(({ item }) => { xpGained += item.xp; });
 
       // Calculate XP from sacrificed materials
       (Object.keys(sacrificeMaterials) as MaterialType[]).forEach((matType) => {
@@ -1696,9 +1754,47 @@ export function useGameState(
         addLog(`⚡ Enhanced ${target.name}: +${xpGained} XP (${finalXp}/${threshold})`, "log-gem");
       }
 
-      return { ...prev, stash: newStash, materials: newMats };
+      // Remove consumed EnhXp items from bag
+      const enhXpIdxSet = new Set(enhXpItems.map((e) => e.idx));
+      const newBag = prev.bag.map((b, i) => enhXpIdxSet.has(i) ? null : b);
+
+      return { ...prev, stash: newStash, materials: newMats, bag: newBag };
     });
   }, [addLog, showNotif]);
+
+  // ---- Anvil: spawn after floor 100 ----
+  // Anvil appears randomly after floor 100, every 15-25 floors
+  // Registered in the floor-step callback alongside vendor spawn
+
+  // ---- Anvil: break gear into Enhancement XP items ----
+  const anvilBreakdown = useCallback((gearIds: string[]) => {
+    setState((prev) => {
+      if (!prev.activeAnvil) return prev;
+      const gearToBreak = gearIds
+        .map((id) => { const idx = prev.bag.findIndex((b) => b && 'isGear' in b && (b as GearItem).id === id); return idx >= 0 ? { idx, gear: prev.bag[idx] as GearItem } : null; })
+        .filter(Boolean) as { idx: number; gear: GearItem }[];
+      if (gearToBreak.length === 0) { showNotif("SELECT GEAR TO BREAK DOWN!"); return prev; }
+
+      const newBag = [...prev.bag];
+      let totalXp = 0;
+      gearToBreak.forEach(({ idx, gear }) => {
+        const rawXp = TIER_XP_VALUE[gear.tier] * RARITY_XP_VALUE[gear.rarity] * 10;
+        const enhXp = Math.max(1, Math.floor(rawXp * 0.1)); // 10% of full XP
+        const enhItem = { id: `enhxp_${Date.now()}_${idx}`, xp: enhXp, sourceSlot: gear.slot, isEnhXp: true as const };
+        newBag[idx] = enhItem as unknown as BagItem;
+        totalXp += enhXp;
+        addLog(`⚔️ Broke down ${gear.name} → ${enhXp} Enhancement XP`, "log-gem");
+      });
+      showNotif(`ANVIL: +${totalXp} ENH XP CREATED`);
+      return { ...prev, bag: newBag };
+    });
+  }, [addLog, showNotif]);
+
+  const dismissAnvil = useCallback(() => {
+    setState((prev) => ({ ...prev, activeAnvil: null }));
+    startWalkInterval();
+    addLog("⚔️ Anvil dismissed. Continuing...", "log-muted");
+  }, [addLog, startWalkInterval]);
 
   const saveNow = useCallback(() => {
     const s = stateRef.current;
@@ -1709,12 +1805,16 @@ export function useGameState(
       totalSteps: s.totalSteps,
       deepestFloor: s.deepestFloor,
       currentDungeon: s.currentDungeon,
+      bag: s.bag,
+      bagSize: s.bagSize,
       stash: s.stash,
       equippedGear: s.equippedGear,
       materials: s.materials,
       runes: s.runes,
       runs: s.runs,
       lives: s.lives,
+      gold: s.gold,
+      quests: s.quests,
       ...offlineData,
     });
     setLastSaved(Date.now());
@@ -1754,6 +1854,8 @@ export function useGameState(
       shopReroll,
       shopBuyBagSlot,
       enhanceGear,
+      anvilBreakdown,
+      dismissAnvil,
       log,
       notification,
       lootPopups,

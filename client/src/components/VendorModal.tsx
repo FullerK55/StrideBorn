@@ -148,11 +148,15 @@ export default function VendorModal({ state, actions }: Props) {
     return Math.max(1, Math.floor((base + gear.stats.length * 5) * FENCE_SELL_MULT));
   }
 
+  // ── Determine which service this vendor offers (reroll or merge, never both) ──
+  const hasReroll = vendor.items.some((i) => i.type === "reroll");
+  const hasMerge = vendor.items.some((i) => i.type === "merge");
+
   // ── Nav tabs ──────────────────────────────────────────────────────────────
   const tabs: { id: VendorSection; label: string; emoji: string }[] = [
     { id: "shop",   label: "SHOP",   emoji: "🛒" },
-    { id: "reroll", label: "REROLL", emoji: "🎲" },
-    { id: "merge",  label: "MERGE",  emoji: "📦" },
+    ...(hasReroll ? [{ id: "reroll" as VendorSection, label: "REROLL", emoji: "🎲" }] : []),
+    ...(hasMerge  ? [{ id: "merge"  as VendorSection, label: "MERGE",  emoji: "📦" }] : []),
     { id: "fence",  label: "FENCE",  emoji: "💸" },
   ];
 
