@@ -415,33 +415,68 @@ function rollRandomSlot(): GearSlot {
   return slots[Math.floor(Math.random() * slots.length)];
 }
 
-function generateFloorDrops(floor: number): BagItem[] {
+function generateFloorDrops(
+  floor: number,
+  lootFindBonus = 0,
+  itemRarityBonus = 0,
+  materialYieldBonus = 0
+): BagItem[] {
   const zone = getFloorZone(floor);
   const drops: BagItem[] = [];
 
-  // Gear drop
-  if (Math.random() < zone.gearDropChance) {
-    const rarity = rollRarity(zone.rarityWeights);
-    const slot = rollRandomSlot();
-    drops.push(generateGearItem(slot, zone.tier, rarity));
+  // Loot Find: base 1 gear roll + bonus rolls (each 100 Loot Find = +1 extra roll)
+  const baseGearRolls = 1;
+  const extraRolls = Math.floor(lootFindBonus / 100);
+  const totalGearRolls = baseGearRolls + extraRolls;
+
+  // Item Rarity: shift rarity weights toward higher tiers
+  // Each 10 Item Rarity shifts 5% weight from lower to higher rarities
+  function applyRarityBonus(weights: Record<GearRarity, number>): Record<GearRarity, number> {
+    if (itemRarityBonus <= 0) return weights;
+    const shift = Math.min(itemRarityBonus * 0.5, 40); // cap at 40% shift
+    const w = { ...weights };
+    const shiftFrom: GearRarity[] = ["scrap", "common", "uncommon"];
+    const shiftTo: GearRarity[] = ["rare", "epic", "legendary", "mythic"];
+    let remaining = shift;
+    for (const r of shiftFrom) {
+      const take = Math.min(w[r], remaining);
+      w[r] -= take;
+      remaining -= take;
+      if (remaining <= 0) break;
+    }
+    const perTier = (shift - remaining) / shiftTo.length;
+    for (const r of shiftTo) w[r] += perTier;
+    return w;
   }
 
-  // Material drop
+  const adjustedWeights = applyRarityBonus(zone.rarityWeights);
+
+  for (let roll = 0; roll < totalGearRolls; roll++) {
+    if (Math.random() < zone.gearDropChance) {
+      const rarity = rollRarity(adjustedWeights);
+      const slot = rollRandomSlot();
+      drops.push(generateGearItem(slot, zone.tier, rarity));
+    }
+  }
+
+  // Material drop — Material Yield bonus increases quantity
+  const yieldMult = 1 + materialYieldBonus / 100;
   const [minQty, maxQty] = zone.matQty;
-  const qty = minQty + Math.floor(Math.random() * (maxQty - minQty + 1));
+  const baseQty = minQty + Math.floor(Math.random() * (maxQty - minQty + 1));
+  const qty = Math.max(1, Math.round(baseQty * yieldMult));
   drops.push({ type: zone.matType, qty, isMaterial: true });
 
   // Floors 21-50 also drop some crude
   if (floor > 20 && floor <= 50 && Math.random() < 0.5) {
-    drops.push({ type: "crude", qty: 1 + Math.floor(Math.random() * 2), isMaterial: true });
+    drops.push({ type: "crude", qty: Math.max(1, Math.round((1 + Math.floor(Math.random() * 2)) * yieldMult)), isMaterial: true });
   }
   // Floors 51-100 also drop some refined
   if (floor > 50 && floor <= 100 && Math.random() < 0.4) {
-    drops.push({ type: "refined", qty: 1, isMaterial: true });
+    drops.push({ type: "refined", qty: Math.max(1, Math.round(yieldMult)), isMaterial: true });
   }
   // Floors 101-200 also drop tempered
   if (floor > 100 && floor <= 200 && Math.random() < 0.3) {
-    drops.push({ type: "tempered", qty: 1, isMaterial: true });
+    drops.push({ type: "tempered", qty: Math.max(1, Math.round(yieldMult)), isMaterial: true });
   }
   // Floors 200+ rare celestial chance
   if (floor > 200 && Math.random() < 0.05) {
@@ -782,8 +817,11 @@ export function useGameState(
 
       addLog(`⬇ Descended to floor ${floor}`, "log-gem");
 
-      // Roll floor drops
-      const drops = generateFloorDrops(floor);
+      // Roll floor drops — pass gear stat bonuses
+      const lootFind = getEquippedStatTotal(stateRef.current.equippedGear, 'Loot Find');
+      const itemRarity = getEquippedStatTotal(stateRef.current.equippedGear, 'Item Rarity');
+      const materialYield = getEquippedStatTotal(stateRef.current.equippedGear, 'Material Yield');
+      const drops = generateFloorDrops(floor, lootFind, itemRarity, materialYield);
       setState((prev) => {
         const newBag = [...prev.bag];
         let added = 0;
@@ -901,8 +939,16 @@ export function useGameState(
     setState((prev) => {
       if (!prev.isInDungeon || prev.isReturning) return prev;
       if (prev.currentFloor === 0) return prev;
-      const needed = prev.currentFloor * STEPS_PER_FLOOR;
-      addLog(`↩ Returning to base — ${needed} steps needed`, "log-orange");
+      // Return Speed: each point reduces steps needed by 1%
+      const returnSpeed = getEquippedStatTotal(prev.equippedGear, 'Return Speed');
+      const reduction = Math.min(returnSpeed / 100, 0.75); // cap at 75% reduction
+      const baseNeeded = prev.currentFloor * STEPS_PER_FLOOR;
+      const needed = Math.max(1, Math.round(baseNeeded * (1 - reduction)));
+      const savedSteps = baseNeeded - needed;
+      const msg = savedSteps > 0
+        ? `↩ Returning — ${needed} steps (${Math.round(reduction * 100)}% faster!)`
+        : `↩ Returning to base — ${needed} steps needed`;
+      addLog(msg, "log-orange");
       return { ...prev, isReturning: true, returnStepsNeeded: needed, returnStepsWalked: 0 };
     });
     if (stateRef.current.currentFloor === 0) arriveAtBase();
