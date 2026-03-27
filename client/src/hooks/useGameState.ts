@@ -282,7 +282,7 @@ function calculateOfflineProgress(profile: Profile): {
   };
 }
 
-function buildInitialState(profile: Profile): GameState {
+function buildInitialState(profile: Profile, resumeInDungeon = false, resumeFloor = 0): GameState {
   const dungeons = DUNGEONS.map((d) => ({
     ...d,
     unlocked: (profile.deepestFloor ?? 0) >= d.unlockFloor || d.unlockFloor === 0,
@@ -291,11 +291,11 @@ function buildInitialState(profile: Profile): GameState {
   return {
     steps: 0,
     totalSteps: profile.totalSteps ?? 0,
-    currentFloor: 0,
+    currentFloor: resumeInDungeon ? resumeFloor : 0,
     deepestFloor: profile.deepestFloor ?? 0,
     stepsToNextFloor: STEPS_PER_FLOOR,
     currentDungeon: profile.currentDungeon ?? "crystal",
-    isInDungeon: false,
+    isInDungeon: resumeInDungeon,
     isReturning: false,
     returnStepsNeeded: 0,
     returnStepsWalked: 0,
@@ -324,6 +324,10 @@ export function useGameState(
   const offlineResult = useRef<ReturnType<typeof calculateOfflineProgress>>(null);
   const offlineSummaryRef = useRef<OfflineSummary | null>(null);
 
+  // Track whether we should resume in dungeon on mount
+  const resumeInDungeonRef = useRef(false);
+  const resumeFloorRef = useRef(0);
+
   // Only compute once on mount
   const [initialState] = useState<GameState>(() => {
     const result = calculateOfflineProgress(profile);
@@ -331,17 +335,28 @@ export function useGameState(
     if (result) {
       offlineSummaryRef.current = result.summary;
       // Build state with updated stash/steps/deepest from offline calc
+      // Resume in dungeon at the floor they reached after offline progress
+      const resumeFloor = result.summary.endFloor;
+      resumeInDungeonRef.current = true;
+      resumeFloorRef.current = resumeFloor;
       const updatedProfile: Profile = {
         ...profile,
         stash: result.newStash,
         totalSteps: result.newTotalSteps,
         deepestFloor: result.newDeepestFloor,
+        currentDungeon: result.summary.dungeon,
         // Clear offline tracking — they're back now
         offlineTimestamp: null,
         offlineFloor: null,
         offlineDungeon: null,
       };
-      return buildInitialState(updatedProfile);
+      return buildInitialState(updatedProfile, true, resumeFloor);
+    }
+    // No offline progress — check if profile was in dungeon (e.g. very short absence < 5s)
+    if (profile.offlineTimestamp && profile.offlineFloor !== null && profile.offlineDungeon) {
+      resumeInDungeonRef.current = true;
+      resumeFloorRef.current = profile.offlineFloor;
+      return buildInitialState(profile, true, profile.offlineFloor);
     }
     return buildInitialState(profile);
   });
@@ -400,6 +415,11 @@ export function useGameState(
         offlineFloor: null,
         offlineDungeon: null,
       });
+    }
+    // If resuming in dungeon, auto-start the walk interval
+    if (resumeInDungeonRef.current) {
+      prevFloorRef.current = resumeFloorRef.current;
+      startWalkInterval();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
