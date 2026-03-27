@@ -12,16 +12,21 @@ import GearTab from "@/components/GearTab";
 import MaterialsTab from "@/components/MaterialsTab";
 import CraftTab from "@/components/CraftTab";
 import type { GearItem, MaterialItem } from "@/hooks/useGameState";
-import { MATERIAL_INFO } from "@/hooks/useGameState";
+import { MATERIAL_INFO, RARITY_LABELS, TIER_LABELS } from "@/hooks/useGameState";
+import VendorModal from "@/components/VendorModal";
+import ShopTab from "@/components/ShopTab";
+import QuestsTab from "@/components/QuestsTab";
 
-type Tab = "bag" | "stash" | "gear" | "materials" | "craft" | "dungeons" | "log";
+type Tab = "bag" | "stash" | "gear" | "materials" | "craft" | "shop" | "quests" | "dungeons" | "log";
 
-const TABS: { id: Tab; label: string }[] = [
+const TABS: { id: Tab; label: string; baseOnly?: boolean }[] = [
   { id: "bag", label: "BAG" },
   { id: "stash", label: "STASH" },
   { id: "gear", label: "GEAR" },
-  { id: "materials", label: "MATS" },
-  { id: "craft", label: "CRAFT" },
+  { id: "materials", label: "MATS", baseOnly: true },
+  { id: "craft", label: "CRAFT", baseOnly: true },
+  { id: "shop", label: "SHOP", baseOnly: true },
+  { id: "quests", label: "QUESTS" },
   { id: "dungeons", label: "MAP" },
   { id: "log", label: "LOG" },
 ];
@@ -106,12 +111,12 @@ export default function Home() {
         {/* SETTINGS OVERLAY */}
         {showSettings && <SettingsOverlay onClose={() => setShowSettings(false)} onSaveNow={actions.saveNow} />}
 
+        {/* Vendor Modal — auto-pauses walking */}
+        <VendorModal state={state} actions={actions} />
+
         {/* OFFLINE SUMMARY MODAL */}
         {actions.offlineSummary && (
-          <OfflineSummary
-            summary={actions.offlineSummary}
-            onClose={actions.clearOfflineSummary}
-          />
+          <OfflineSummary summary={actions.offlineSummary} onClose={actions.clearOfflineSummary} />
         )}
 
         {/* HEADER */}
@@ -354,8 +359,7 @@ export default function Home() {
             scrollbarWidth: "none",
           }}>
             {TABS.map((tab) => {
-              const isBaseOnly = tab.id === "materials" || tab.id === "craft";
-              const locked = isBaseOnly && isActive;
+              const locked = !!tab.baseOnly && isActive;
               return (
                 <button
                   key={tab.id}
@@ -475,11 +479,40 @@ export default function Home() {
                         opacity: item ? 1 : 0.15,
                       }}
                     >
-                      {item ? item.emoji : ""}
+                      {item ? (
+                        <div style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <span style={{ fontSize: 16 }}>{item.emoji}</span>
+                          {!state.isInDungeon && !state.isReturning && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); actions.salvageGear(item.id); }}
+                              title="Salvage"
+                              style={{
+                                position: "absolute",
+                                bottom: 1,
+                                right: 1,
+                                fontSize: 8,
+                                background: "rgba(0,0,0,0.8)",
+                                border: "none",
+                                color: "#ff6644",
+                                cursor: "pointer",
+                                padding: "1px 2px",
+                                lineHeight: 1,
+                              }}
+                            >
+                              🔨
+                            </button>
+                          )}
+                        </div>
+                      ) : ""}
                     </div>
                   );
                 })}
               </div>
+              {!state.isInDungeon && !state.isReturning && state.stash.length > 0 && (
+                <div style={{ marginTop: 6, fontSize: 11, color: "#555", fontFamily: "'VT323', monospace" }}>
+                  🔨 = salvage for materials
+                </div>
+              )}
             </div>
           )}
 
@@ -496,6 +529,16 @@ export default function Home() {
           {/* CRAFT TAB */}
           {activeTab === "craft" && (
             <CraftTab state={state} actions={actions} />
+          )}
+
+          {/* SHOP TAB */}
+          {activeTab === "shop" && (
+            <ShopTab state={state} actions={actions} />
+          )}
+
+          {/* QUESTS TAB */}
+          {activeTab === "quests" && (
+            <QuestsTab state={state} actions={actions} />
           )}
 
           {/* DUNGEONS TAB */}

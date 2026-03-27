@@ -225,6 +225,36 @@ export interface LogEntry {
   timestamp: number;
 }
 
+// Quest types
+export type QuestStatus = "available" | "active" | "completed" | "turned_in";
+export interface Quest {
+  id: string;
+  title: string;
+  description: string;
+  objective: { type: "reach_floor" | "find_rarity" | "complete_runs" | "collect_materials" | "earn_gold"; target: number; rarity?: GearRarity; matType?: MaterialType };
+  progress: number;
+  reward: { gold: number; materials?: { type: MaterialType; qty: number } };
+  status: QuestStatus;
+  expiresAt: number; // timestamp
+}
+
+// Vendor types
+export interface VendorItem {
+  id: string;
+  type: "gear" | "material" | "reroll" | "socket";
+  label: string;
+  emoji: string;
+  cost: number;
+  gear?: GearItem;
+  matType?: MaterialType;
+  matQty?: number;
+}
+
+export interface ActiveVendor {
+  floor: number;
+  items: VendorItem[];
+}
+
 export interface Materials {
   crude: number;
   refined: number;
@@ -258,6 +288,9 @@ export interface GameState {
   runs: number;
   lives: number;
   dungeons: typeof DUNGEONS;
+  gold: number;
+  quests: Quest[];
+  activeVendor: ActiveVendor | null;
 }
 
 export interface OfflineSummary {
@@ -283,6 +316,13 @@ export interface GameActions {
   craftTierUp: (gearId: string) => void;
   combineRune: (runeId: string) => void;
   socketRune: (gearId: string, socketIdx: number, runeId: string) => void;
+  acceptQuest: (questId: string) => void;
+  turnInQuest: (questId: string) => void;
+  buyFromVendor: (itemId: string) => void;
+  dismissVendor: () => void;
+  salvageGear: (gearId: string) => void;
+  shopReroll: (gearId: string) => void;
+  shopBuyBagSlot: () => void;
   log: LogEntry[];
   notification: string | null;
   lootPopups: LootPopup[];
@@ -554,6 +594,110 @@ function calculateOfflineProgress(profile: Profile): {
 }
 
 // ============================================================
+// GOLD HELPERS
+// ============================================================
+
+/** Gold earned per floor — slow scaling, boosted by Gold Find stat */
+export function calcGoldForFloor(floor: number, goldFind: number): number {
+  const base = 5 + Math.floor(floor * 0.8);
+  const bonus = 1 + goldFind / 100;
+  return Math.round(base * bonus);
+}
+
+// ============================================================
+// QUEST GENERATION
+// ============================================================
+
+const QUEST_TEMPLATES: Array<{
+  title: string;
+  desc: (t: number) => string;
+  objective: Quest["objective"];
+  reward: (t: number) => Quest["reward"];
+}> = [
+  { title: "Deep Delver",    desc: (t) => `Reach floor ${t} in any dungeon`,       objective: { type: "reach_floor",      target: 0 }, reward: (t) => ({ gold: t * 10 }) },
+  { title: "Rarity Hunter",  desc: (t) => `Find ${t} Rare or better items`,         objective: { type: "find_rarity",      target: 0, rarity: "rare" }, reward: (t) => ({ gold: t * 20 }) },
+  { title: "Seasoned Runner",desc: (t) => `Complete ${t} dungeon runs`,              objective: { type: "complete_runs",    target: 0 }, reward: (t) => ({ gold: t * 30 }) },
+  { title: "Material Hoarder",desc:(t) => `Collect ${t} Crude materials`,           objective: { type: "collect_materials", target: 0, matType: "crude" }, reward: (t) => ({ gold: t * 5, materials: { type: "refined" as MaterialType, qty: Math.ceil(t / 10) } }) },
+  { title: "Gold Rush",      desc: (t) => `Earn ${t} gold from dungeon runs`,       objective: { type: "earn_gold",        target: 0 }, reward: (t) => ({ gold: Math.round(t * 0.5) }) },
+];
+
+export function generateDailyQuests(): Quest[] {
+  const now = Date.now();
+  // Expire at midnight UTC
+  const tomorrow = new Date();
+  tomorrow.setUTCHours(24, 0, 0, 0);
+  const expiresAt = tomorrow.getTime();
+
+  const targets = [15, 25, 40, 3, 5, 8, 50, 100, 200, 500];
+  const quests: Quest[] = [];
+  const used = new Set<number>();
+
+  for (let i = 0; i < 4; i++) {
+    let tIdx = Math.floor(Math.random() * QUEST_TEMPLATES.length);
+    // Avoid duplicate types
+    let attempts = 0;
+    while (used.has(tIdx) && attempts < 10) { tIdx = Math.floor(Math.random() * QUEST_TEMPLATES.length); attempts++; }
+    used.add(tIdx);
+    const tmpl = QUEST_TEMPLATES[tIdx];
+    const target = targets[Math.floor(Math.random() * targets.length)];
+    const obj = { ...tmpl.objective, target };
+    quests.push({
+      id: `quest_${now}_${i}`,
+      title: tmpl.title,
+      description: tmpl.desc(target),
+      objective: obj,
+      progress: 0,
+      reward: tmpl.reward(target),
+      status: "available",
+      expiresAt,
+    });
+  }
+  return quests;
+}
+
+// ============================================================
+// VENDOR GENERATION
+// ============================================================
+
+export function generateVendorItems(floor: number): VendorItem[] {
+  const tier = floor < 40 ? "iron" : floor < 80 ? "steel" : floor < 120 ? "shadow" : floor < 160 ? "void" : "celestial";
+  const items: VendorItem[] = [];
+  // 1-2 random gear pieces
+  const slots: GearSlot[] = ["helmet", "gloves", "chest", "pants", "boots", "backpack", "weapon", "ring", "amulet"];
+  const rarities: GearRarity[] = floor < 20 ? ["common", "uncommon"] : floor < 50 ? ["uncommon", "rare"] : floor < 100 ? ["rare", "epic"] : ["epic", "legendary"];
+  for (let i = 0; i < 2; i++) {
+    const slot = slots[Math.floor(Math.random() * slots.length)];
+    const rarity = rarities[Math.floor(Math.random() * rarities.length)];
+    const gear = generateGearItem(slot, tier, rarity);
+    const baseCost = { common: 30, uncommon: 60, rare: 120, epic: 250, legendary: 500, mythic: 1000, scrap: 10 }[rarity];
+    items.push({ id: `vi_${Date.now()}_${i}`, type: "gear", label: gear.name, emoji: gear.emoji, cost: baseCost + Math.floor(floor * 2), gear });
+  }
+  // 1 material bundle
+  const matTypes: MaterialType[] = ["crude", "refined", "tempered", "voidmat", "celestialmat"];
+  const matIdx = Math.min(Math.floor(floor / 40), 4);
+  const matType = matTypes[matIdx];
+  const matQty = 10 + Math.floor(floor / 10);
+  const matCost = [20, 50, 100, 200, 400][matIdx];
+  items.push({ id: `vi_mat_${Date.now()}`, type: "material", label: `${matQty}x ${MATERIAL_INFO[matType].label}`, emoji: MATERIAL_INFO[matType].emoji, cost: matCost, matType, matQty });
+  // 1 service: reroll or socket
+  const svcCost = 80 + floor * 3;
+  items.push({ id: `vi_svc_${Date.now()}`, type: "reroll", label: "Stat Reroll (any stash item)", emoji: "🎲", cost: svcCost });
+  return items;
+}
+
+// ============================================================
+// SALVAGE HELPERS
+// ============================================================
+
+export function salvageYield(gear: GearItem, salvageYieldBonus: number): { type: MaterialType; qty: number }[] {
+  const tierMat: Record<GearTier, MaterialType> = { iron: "crude", steel: "refined", shadow: "tempered", void: "voidmat", celestial: "celestialmat" };
+  const rarityQty: Record<GearRarity, number> = { scrap: 1, common: 2, uncommon: 4, rare: 8, epic: 15, legendary: 25, mythic: 40 };
+  const mat = tierMat[gear.tier];
+  const qty = Math.round(rarityQty[gear.rarity] * (1 + salvageYieldBonus / 100));
+  return [{ type: mat, qty }];
+}
+
+// ============================================================
 // INITIAL STATE BUILDER
 // ============================================================
 
@@ -598,6 +742,9 @@ function buildInitialState(
     runs: profile.runs ?? 0,
     lives: profile.lives ?? 1,
     dungeons,
+    gold: (profile as Profile & { gold?: number }).gold ?? 0,
+    quests: (profile as Profile & { quests?: Quest[] }).quests ?? generateDailyQuests(),
+    activeVendor: null,
   };
 }
 
@@ -856,6 +1003,47 @@ export function useGameState(
         addLog(`💀 Boss encountered on floor ${floor}!`, "log-red");
       }
 
+      // Gold drop per floor
+      setState((prev) => {
+        const goldFind = getEquippedStatTotal(prev.equippedGear, 'Gold Find');
+        const earned = calcGoldForFloor(floor, goldFind);
+        // Update earn_gold quests
+        const newQuests = prev.quests.map((q) =>
+          q.status === "active" && q.objective.type === "earn_gold"
+            ? { ...q, progress: Math.min(q.progress + earned, q.objective.target) }
+            : q
+        );
+        addLog(`💰 +${earned} gold (floor ${floor})`, "log-gold");
+        return { ...prev, gold: prev.gold + earned, quests: newQuests };
+      });
+
+      // Vendor spawn: random floor every 10-20 floors
+      setState((prev) => {
+        if (prev.activeVendor) return prev; // already has vendor
+        // Seed vendor appearance: every 10-20 floors randomly
+        const vendorInterval = 10 + Math.floor(Math.random() * 11);
+        if (floor > 0 && floor % vendorInterval === 0) {
+          const vendorItems = generateVendorItems(floor);
+          stopWalkInterval();
+          showNotif(`🛒 VENDOR ON FLOOR ${floor}!`);
+          addLog(`🛒 A wandering vendor appeared on floor ${floor}!`, "log-gold");
+          return { ...prev, activeVendor: { floor, items: vendorItems } };
+        }
+        return prev;
+      });
+
+      // Quest progress: reach_floor
+      setState((prev) => {
+        const newQuests = prev.quests.map((q) => {
+          if (q.status !== "active") return q;
+          if (q.objective.type === "reach_floor" && floor >= q.objective.target) {
+            return { ...q, progress: q.objective.target, status: "completed" as QuestStatus };
+          }
+          return q;
+        });
+        return { ...prev, quests: newQuests };
+      });
+
       // Dungeon unlocks
       DUNGEONS.forEach((d) => {
         if (!d.unlocked && d.unlockFloor > 0 && floor >= d.unlockFloor) {
@@ -868,7 +1056,7 @@ export function useGameState(
         }
       });
     }
-  }, [state.currentFloor, state.isInDungeon, state.isReturning, addLog, showNotif, spawnLootPopup]);
+  }, [state.currentFloor, state.isInDungeon, state.isReturning, addLog, showNotif, spawnLootPopup, stopWalkInterval]);
 
   // ---- Watch for return completion ----
   useEffect(() => {
@@ -1122,6 +1310,119 @@ export function useGameState(
 
   const clearOfflineSummary = useCallback(() => setOfflineSummary(null), []);
 
+  // ---- Quest actions ----
+  const acceptQuest = useCallback((questId: string) => {
+    setState((prev) => {
+      if (prev.isInDungeon) { showNotif("RETURN TO BASE TO ACCEPT QUESTS!"); return prev; }
+      const q = prev.quests.find((q) => q.id === questId);
+      if (!q || q.status !== "available") return prev;
+      const active = prev.quests.filter((q) => q.status === "active").length;
+      if (active >= 3) { showNotif("MAX 3 ACTIVE QUESTS!"); return prev; }
+      addLog(`📋 Quest accepted: ${q.title}`, "log-gem");
+      return { ...prev, quests: prev.quests.map((qq) => qq.id === questId ? { ...qq, status: "active" as QuestStatus } : qq) };
+    });
+  }, [addLog, showNotif]);
+
+  const turnInQuest = useCallback((questId: string) => {
+    setState((prev) => {
+      if (prev.isInDungeon) { showNotif("RETURN TO BASE TO TURN IN QUESTS!"); return prev; }
+      const q = prev.quests.find((q) => q.id === questId);
+      if (!q || q.status !== "completed") return prev;
+      let newMats = { ...prev.materials };
+      if (q.reward.materials) {
+        const { type, qty } = q.reward.materials;
+        newMats[type] = (newMats[type] ?? 0) + qty;
+      }
+      addLog(`✅ Quest complete: ${q.title} — +${q.reward.gold} gold!`, "log-gold");
+      showNotif(`✅ QUEST COMPLETE! +${q.reward.gold} GOLD!`);
+      return {
+        ...prev,
+        gold: prev.gold + q.reward.gold,
+        materials: newMats,
+        quests: prev.quests.map((qq) => qq.id === questId ? { ...qq, status: "turned_in" as QuestStatus } : qq),
+      };
+    });
+  }, [addLog, showNotif]);
+
+  // ---- Vendor actions ----
+  const buyFromVendor = useCallback((itemId: string) => {
+    setState((prev) => {
+      if (!prev.activeVendor) return prev;
+      const item = prev.activeVendor.items.find((i) => i.id === itemId);
+      if (!item) return prev;
+      if (prev.gold < item.cost) { showNotif("NOT ENOUGH GOLD!"); return prev; }
+      let newState = { ...prev, gold: prev.gold - item.cost };
+      if (item.type === "gear" && item.gear) {
+        const emptySlot = newState.bag.findIndex((s) => s === null);
+        if (emptySlot === -1) { showNotif("BAG FULL!"); return prev; }
+        const newBag = [...newState.bag];
+        newBag[emptySlot] = item.gear;
+        newState = { ...newState, bag: newBag };
+        addLog(`🛒 Bought ${item.gear.name} for ${item.cost}g`, "log-gold");
+      } else if (item.type === "material" && item.matType && item.matQty) {
+        newState = { ...newState, materials: { ...newState.materials, [item.matType]: (newState.materials[item.matType] ?? 0) + item.matQty } };
+        addLog(`🛒 Bought ${item.matQty}x ${MATERIAL_INFO[item.matType].label} for ${item.cost}g`, "log-gold");
+      } else if (item.type === "reroll") {
+        // Mark as a pending reroll — handled in shop
+        addLog(`🛒 Bought stat reroll service for ${item.cost}g`, "log-gold");
+        showNotif("REROLL SERVICE PURCHASED! USE IN CRAFT TAB.");
+      }
+      // Remove purchased item from vendor
+      const newItems = prev.activeVendor.items.filter((i) => i.id !== itemId);
+      newState = { ...newState, activeVendor: { ...prev.activeVendor, items: newItems } };
+      return newState;
+    });
+  }, [addLog, showNotif]);
+
+  const dismissVendor = useCallback(() => {
+    setState((prev) => ({ ...prev, activeVendor: null }));
+    startWalkInterval();
+    addLog("🛒 Vendor dismissed. Continuing...", "log-muted");
+  }, [addLog, startWalkInterval]);
+
+  // ---- Salvage action (base only) ----
+  const salvageGear = useCallback((gearId: string) => {
+    setState((prev) => {
+      if (prev.isInDungeon) { showNotif("RETURN TO BASE TO SALVAGE!"); return prev; }
+      const gear = prev.stash.find((g) => g.id === gearId);
+      if (!gear) return prev;
+      const salvageBonus = getEquippedStatTotal(prev.equippedGear, 'Salvage Yield');
+      const yields = salvageYield(gear, salvageBonus);
+      const newMats = { ...prev.materials };
+      yields.forEach(({ type, qty }) => { newMats[type] = (newMats[type] ?? 0) + qty; });
+      const newStash = prev.stash.filter((g) => g.id !== gearId);
+      addLog(`🔨 Salvaged ${gear.name} → ${yields.map(y => `${y.qty}x ${MATERIAL_INFO[y.type].label}`).join(", ")}`, "log-gem");
+      return { ...prev, stash: newStash, materials: newMats };
+    });
+  }, [addLog, showNotif]);
+
+  // ---- Shop actions (base only) ----
+  const SHOP_REROLL_COST = 150;
+  const SHOP_BAG_SLOT_COST = 500;
+  const shopReroll = useCallback((gearId: string) => {
+    setState((prev) => {
+      if (prev.isInDungeon) { showNotif("RETURN TO BASE FOR SHOP!"); return prev; }
+      if (prev.gold < SHOP_REROLL_COST) { showNotif(`NEED ${SHOP_REROLL_COST} GOLD!`); return prev; }
+      const gear = prev.stash.find((g) => g.id === gearId);
+      if (!gear) return prev;
+      const newStats = rollStats(gear.slot, gear.rarity, gear.tier);
+      const newStash = prev.stash.map((g) => g.id === gearId ? { ...g, stats: newStats } : g);
+      addLog(`🏪 Shop rerolled stats on ${gear.name} (-${SHOP_REROLL_COST}g)`, "log-gold");
+      return { ...prev, gold: prev.gold - SHOP_REROLL_COST, stash: newStash };
+    });
+  }, [addLog, showNotif]);
+
+  const shopBuyBagSlot = useCallback(() => {
+    setState((prev) => {
+      if (prev.isInDungeon) { showNotif("RETURN TO BASE FOR SHOP!"); return prev; }
+      if (prev.gold < SHOP_BAG_SLOT_COST) { showNotif(`NEED ${SHOP_BAG_SLOT_COST} GOLD!`); return prev; }
+      const newBagSize = prev.bagSize + 1;
+      const newBag = [...prev.bag, null];
+      addLog(`🏪 Bought extra bag slot! Bag: ${newBagSize} slots (-${SHOP_BAG_SLOT_COST}g)`, "log-gold");
+      return { ...prev, gold: prev.gold - SHOP_BAG_SLOT_COST, bagSize: newBagSize, bag: newBag };
+    });
+  }, [addLog, showNotif]);
+
   const saveNow = useCallback(() => {
     const s = stateRef.current;
     const offlineData = s.isInDungeon && !s.isReturning
@@ -1165,6 +1466,13 @@ export function useGameState(
       craftTierUp,
       combineRune,
       socketRune,
+      acceptQuest,
+      turnInQuest,
+      buyFromVendor,
+      dismissVendor,
+      salvageGear,
+      shopReroll,
+      shopBuyBagSlot,
       log,
       notification,
       lootPopups,
