@@ -4,7 +4,7 @@
 // Design: retro pixel aesthetic matching the rest of the game
 
 import { useState } from "react";
-import type { GameState, GameActions, GearItem, MaterialType } from "@/hooks/useGameState";
+import type { GameState, GameActions, GearItem, MaterialType, EnhancementXpItem } from "@/hooks/useGameState";
 import {
   RARITY_COLORS,
   RARITY_LABELS,
@@ -87,7 +87,13 @@ export default function EnhanceTab({ state, actions }: Props) {
   // Step 2: pick sacrifices
   const [sacrificeIds, setSacrificeIds] = useState<Set<string>>(new Set());
   const [matQty, setMatQty] = useState<Partial<Record<MaterialType, number>>>({});
+  const [enhXpIds, setEnhXpIds] = useState<Set<string>>(new Set());
   const [confirmPending, setConfirmPending] = useState(false);
+
+  // EnhXp items in bag
+  const bagEnhXpItems: EnhancementXpItem[] = state.bag
+    .filter((b) => b !== null && 'isEnhXp' in (b as object))
+    .map((b) => b as unknown as EnhancementXpItem);
 
   // Target can be in stash OR equipped
   const equippedList: GearItem[] = GEAR_SLOTS
@@ -112,7 +118,11 @@ export default function EnhanceTab({ state, actions }: Props) {
     const qty = matQty[t] ?? 0;
     return sum + calcMatXp(t, qty);
   }, 0);
-  const totalXpPreview = xpFromGear + xpFromMats;
+  const xpFromEnhXp = Array.from(enhXpIds).reduce((sum, id) => {
+    const item = bagEnhXpItems.find((x) => x.id === id);
+    return sum + (item ? item.xp : 0);
+  }, 0);
+  const totalXpPreview = xpFromGear + xpFromMats + xpFromEnhXp;
 
   // Current XP and threshold
   const currentXp = target ? target.enhancementXp : 0;
@@ -144,15 +154,25 @@ export default function EnhanceTab({ state, actions }: Props) {
     setTargetId(null);
     setSacrificeIds(new Set());
     setMatQty({});
+    setEnhXpIds(new Set());
     setConfirmPending(false);
+  }
+
+  function toggleEnhXp(id: string) {
+    setEnhXpIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   }
 
   function handleEnhance() {
     if (!targetId) return;
     if (confirmPending) {
-      actions.enhanceGear(targetId, Array.from(sacrificeIds), matQty);
+      actions.enhanceGear(targetId, Array.from(sacrificeIds), matQty, Array.from(enhXpIds));
       setSacrificeIds(new Set());
       setMatQty({});
+      setEnhXpIds(new Set());
       setConfirmPending(false);
     } else {
       setConfirmPending(true);
@@ -404,9 +424,46 @@ export default function EnhanceTab({ state, actions }: Props) {
             )}
           </div>
 
+          {/* Sacrifice Enhancement XP Items */}
+          {bagEnhXpItems.length > 0 && (
+            <div style={s.section}>
+              <div style={s.sectionTitle}>③ SACRIFICE ENH. XP</div>
+              <div style={{ ...s.muted, marginBottom: 8 }}>
+                Enhancement XP items from the Anvil. Cross-slot — usable on any gear piece.
+              </div>
+              <div style={{ maxHeight: 180, overflowY: "auto" }}>
+                {bagEnhXpItems.map((item) => {
+                  const selected = enhXpIds.has(item.id);
+                  const slotLabel = item.sourceSlot ? item.sourceSlot.charAt(0).toUpperCase() + item.sourceSlot.slice(1) : "?";
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => toggleEnhXp(item.id)}
+                      style={s.itemRow(selected, "#ffaa44")}
+                    >
+                      <span style={{ fontSize: 20 }}>✨</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ffaa44" }}>
+                          Lv.{item.level} Enhancement XP
+                        </div>
+                        <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#666" }}>
+                          From: {slotLabel} · Qty: {item.qty}
+                        </div>
+                      </div>
+                      <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: selected ? "#66ff88" : "#ffaa44", textAlign: "right", flexShrink: 0 }}>
+                        +{item.xp} XP
+                        {selected && <div style={{ fontSize: 11, color: "#66ff88" }}>✓ selected</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Sacrifice Materials */}
           <div style={s.section}>
-            <div style={s.sectionTitle}>③ SACRIFICE MATERIALS</div>
+            <div style={s.sectionTitle}>{bagEnhXpItems.length > 0 ? "④" : "③"} SACRIFICE MATERIALS</div>
             <div style={{ ...s.muted, marginBottom: 8 }}>
               Enter quantities to sacrifice. Each material grants XP.
             </div>
@@ -460,10 +517,11 @@ export default function EnhanceTab({ state, actions }: Props) {
 
           {/* Summary & Confirm */}
           <div style={s.section}>
-            <div style={s.sectionTitle}>④ ENHANCE</div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'VT323', monospace", fontSize: 14, color: "#aaa", marginBottom: 10 }}>
-              <span>XP from gear: <span style={{ color: "#aa88ff" }}>{xpFromGear}</span></span>
-              <span>XP from mats: <span style={{ color: "#aa88ff" }}>{xpFromMats}</span></span>
+            <div style={s.sectionTitle}>{bagEnhXpItems.length > 0 ? "⑤" : "④"} ENHANCE</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", fontFamily: "'VT323', monospace", fontSize: 14, color: "#aaa", marginBottom: 10 }}>
+              <span>Gear: <span style={{ color: "#aa88ff" }}>{xpFromGear}</span></span>
+              <span>Mats: <span style={{ color: "#aa88ff" }}>{xpFromMats}</span></span>
+              {xpFromEnhXp > 0 && <span>Enh.XP: <span style={{ color: "#ffaa44" }}>{xpFromEnhXp}</span></span>}
               <span>Total: <span style={{ color: "#66ff88" }}>+{totalXpPreview}</span></span>
             </div>
 
