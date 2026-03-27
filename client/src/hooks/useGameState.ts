@@ -7,6 +7,17 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { Profile } from "@/contexts/ProfileContext";
 
+// ---- Auto-Invest config (defined here to avoid circular imports) ----
+export interface AutoInvestConfig {
+  enabled: boolean;
+  buyBooks: boolean;
+  buyGearMinRarity: GearRarity | null;
+  buyGearMaxPrice: number;
+  buyMaterials: boolean;
+  goldReserve: number;
+  anvilBreakMaxRarity: GearRarity | null;
+}
+
 // ============================================================
 // GAME DATA — DUNGEONS
 // ============================================================
@@ -1002,10 +1013,13 @@ let popupIdCounter = 0;
 export function useGameState(
   profile: Profile,
   onSave: (data: Partial<Profile>) => void,
-  leaveAloneMode = false
+  leaveAloneMode = false,
+  autoInvest?: AutoInvestConfig
 ): [GameState, GameActions] {
   const leaveAloneModeRef = useRef(leaveAloneMode);
   leaveAloneModeRef.current = leaveAloneMode;
+  const autoInvestRef = useRef(autoInvest);
+  autoInvestRef.current = autoInvest;
   const offlineResult = useRef<ReturnType<typeof calculateOfflineProgress>>(null);
   const offlineSummaryRef = useRef<OfflineSummary | null>(null);
   const resumeInDungeonRef = useRef(false);
@@ -1311,37 +1325,108 @@ export function useGameState(
         return { ...prev, gold: prev.gold + earned, quests: newQuests };
       });
 
+      // Rarity ordering helper (used by auto-invest)
+      const RARITY_ORD: GearRarity[] = ["scrap", "common", "uncommon", "rare", "epic", "legendary", "mythic"];
+      const rarityGte = (a: GearRarity, b: GearRarity) => RARITY_ORD.indexOf(a) >= RARITY_ORD.indexOf(b);
+      const rarityLte = (a: GearRarity, b: GearRarity) => RARITY_ORD.indexOf(a) <= RARITY_ORD.indexOf(b);
+
       // Vendor spawn: random floor every 10-20 floors
-      if (!leaveAloneModeRef.current) {
-        setState((prev) => {
-          if (prev.activeVendor) return prev; // already has vendor
-          const vendorInterval = 10 + Math.floor(Math.random() * 11);
-          if (floor > 0 && floor % vendorInterval === 0) {
-            const vendorItems = generateVendorItems(floor);
+      const vendorInterval = 10 + Math.floor(Math.random() * 11);
+      if (floor > 0 && floor % vendorInterval === 0) {
+        const vendorItems = generateVendorItems(floor);
+        const ai = autoInvestRef.current;
+
+        if (ai?.enabled) {
+          // --- Silent auto-invest vendor execution ---
+          setState((prev) => {
+            let s = { ...prev };
+            let bought = 0;
+            for (const item of vendorItems) {
+              const afterGold = s.gold - item.cost;
+              if (afterGold < ai.goldReserve) continue; // would breach reserve
+              if (item.type === "gear" && item.gear && ai.buyGearMinRarity !== null) {
+                if (!rarityGte(item.gear.rarity, ai.buyGearMinRarity)) continue;
+                if (ai.buyGearMaxPrice > 0 && item.cost > ai.buyGearMaxPrice) continue;
+                const emptySlot = s.bag.findIndex((b) => b === null);
+                if (emptySlot === -1) continue; // bag full
+                const newBag = [...s.bag];
+                newBag[emptySlot] = item.gear;
+                s = { ...s, bag: newBag, gold: afterGold };
+                addLog(`🔄 Auto-bought ${item.gear.name} for ${item.cost}g`, "log-gold");
+                bought++;
+              } else if (item.type === "gear" && item.gear && 'isBook' in item.gear && ai.buyBooks) {
+                // Book sold as a gear-type vendor item
+                const emptySlot = s.bag.findIndex((b) => b === null);
+                if (emptySlot !== -1 && s.gold - item.cost >= ai.goldReserve) {
+                  const newBag = [...s.bag];
+                  newBag[emptySlot] = item.gear as unknown as BagItem;
+                  s = { ...s, bag: newBag, gold: s.gold - item.cost };
+                  addLog(`🔄 Auto-bought book for ${item.cost}g`, "log-gold");
+                  bought++;
+                }
+              }
+              if (item.type === "material" && item.matType && item.matQty && ai.buyMaterials) {
+                s = { ...s, materials: { ...s.materials, [item.matType]: (s.materials[item.matType] ?? 0) + item.matQty }, gold: afterGold };
+                addLog(`🔄 Auto-bought ${item.matQty}x ${item.matType} for ${item.cost}g`, "log-gold");
+                bought++;
+              }
+            }
+            if (bought > 0) showNotif(`🔄 AUTO-INVEST: ${bought} item${bought > 1 ? "s" : ""} bought!`);
+            return s;
+          });
+        } else if (!leaveAloneModeRef.current) {
+          // Normal popup
+          setState((prev) => {
+            if (prev.activeVendor) return prev;
             stopWalkInterval();
             showNotif(`🛍️ VENDOR ON FLOOR ${floor}!`);
             addLog(`🛍️ A wandering vendor appeared on floor ${floor}!`, "log-gold");
             return { ...prev, activeVendor: { floor, items: vendorItems, rerollUsed: false, mergeUsed: false } };
-          }
-          return prev;
-        });
+          });
+        }
+      }
 
-        // Anvil spawn: after floor 100, every 15-25 floors
-        setState((prev) => {
-          if (prev.activeVendor || prev.activeAnvil || prev.activeFence) return prev;
-          if (floor > 100) {
-            const anvilInterval = 15 + Math.floor(Math.random() * 11);
-            if (floor % anvilInterval === 0) {
+      // Anvil spawn: after floor 100, every 15-25 floors
+      if (floor > 100) {
+        const anvilInterval = 15 + Math.floor(Math.random() * 11);
+        if (floor % anvilInterval === 0) {
+          const ai = autoInvestRef.current;
+          if (ai?.enabled && ai.anvilBreakMaxRarity !== null) {
+            // --- Silent auto-invest anvil execution ---
+            setState((prev) => {
+              if (prev.activeVendor || prev.activeAnvil || prev.activeFence) return prev;
+              const toBreak = prev.bag
+                .filter((b): b is GearItem => b !== null && 'isGear' in b && rarityLte((b as GearItem).rarity, ai.anvilBreakMaxRarity!))
+                .map((g) => g as GearItem);
+              if (toBreak.length === 0) return prev;
+              const totalCost = toBreak.reduce((sum, g) => sum + ANVIL_COST_PER_TIER[g.tier], 0);
+              if (prev.gold - totalCost < ai.goldReserve) return prev; // would breach reserve
+              const newBag = [...prev.bag];
+              let totalXp = 0;
+              toBreak.forEach((gear) => {
+                const idx = newBag.findIndex((b) => b !== null && 'isGear' in b && (b as GearItem).id === gear.id);
+                if (idx >= 0) newBag[idx] = null;
+                const rawXp = TIER_XP_VALUE[gear.tier] * RARITY_XP_VALUE[gear.rarity] * 10;
+                totalXp += Math.max(1, Math.floor(rawXp * 0.1));
+                addLog(`🔄 Auto-broke ${gear.name} → Enh XP`, "log-gem");
+              });
+              showNotif(`🔄 AUTO-ANVIL: +${totalXp} ENH XP`);
+              return { ...prev, bag: newBag, gold: prev.gold - totalCost, enhancementXpPool: prev.enhancementXpPool + totalXp };
+            });
+          } else if (!leaveAloneModeRef.current) {
+            setState((prev) => {
+              if (prev.activeVendor || prev.activeAnvil || prev.activeFence) return prev;
               stopWalkInterval();
               showNotif(`⚔️ ANVIL ON FLOOR ${floor}!`);
               addLog(`⚔️ A weathered anvil sits on floor ${floor}!`, "log-gem");
               return { ...prev, activeAnvil: { floor } };
-            }
+            });
           }
-          return prev;
-        });
+        }
+      }
 
-        // Fence spawn: after floor 50, every 20-30 floors
+      // Fence spawn: after floor 50, every 20-30 floors (no auto-invest — fence is sell-only)
+      if (!leaveAloneModeRef.current) {
         setState((prev) => {
           if (prev.activeVendor || prev.activeAnvil || prev.activeFence) return prev;
           if (floor > 50) {
