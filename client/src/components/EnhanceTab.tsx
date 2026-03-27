@@ -91,9 +91,11 @@ export default function EnhanceTab({ state, actions }: Props) {
   const [confirmPending, setConfirmPending] = useState(false);
 
   // EnhXp items in bag
-  const bagEnhXpItems: EnhancementXpItem[] = state.bag
-    .filter((b) => b !== null && 'isEnhXp' in (b as object))
-    .map((b) => b as unknown as EnhancementXpItem);
+  // EnhXp items can be in bag (from Anvil) or accidentally in stash (from old bug) — check both
+  const bagEnhXpItems: EnhancementXpItem[] = [
+    ...state.bag.filter((b) => b !== null && 'isEnhXp' in (b as object)),
+    ...state.stash.filter((b) => b !== null && 'isEnhXp' in (b as object)),
+  ].map((b) => b as unknown as EnhancementXpItem);
 
   // Target can be in stash OR equipped
   const equippedList: GearItem[] = GEAR_SLOTS

@@ -1931,11 +1931,19 @@ export function useGameState(
         xpGained += TIER_XP_VALUE[g.tier] * RARITY_XP_VALUE[g.rarity] * 10;
       });
 
-      // Calculate XP from Enhancement XP items in bag (cross-slot, 10% already baked in)
+      // Calculate XP from Enhancement XP items in bag OR stash (cross-slot, 10% already baked in)
       type EnhXpBagItem = EnhancementXpItem & { id: string };
-      const enhXpItems = sacrificeEnhXpIds
-        .map((id) => { const idx = prev.bag.findIndex((b) => b && 'isEnhXp' in b && (b as unknown as EnhXpBagItem).id === id); return idx >= 0 ? { idx, item: prev.bag[idx] as unknown as EnhXpBagItem } : null; })
-        .filter(Boolean) as { idx: number; item: EnhXpBagItem }[];
+      // Find in bag
+      const enhXpInBag = sacrificeEnhXpIds
+        .map((id) => { const idx = prev.bag.findIndex((b) => b && 'isEnhXp' in b && (b as unknown as EnhXpBagItem).id === id); return idx >= 0 ? { source: 'bag' as const, idx, item: prev.bag[idx] as unknown as EnhXpBagItem } : null; })
+        .filter(Boolean) as { source: 'bag'; idx: number; item: EnhXpBagItem }[];
+      // Find remaining in stash
+      const foundInBagIds = new Set(enhXpInBag.map((e) => e.item.id));
+      const enhXpInStash = sacrificeEnhXpIds
+        .filter((id) => !foundInBagIds.has(id))
+        .map((id) => { const idx = prev.stash.findIndex((b) => b && 'isEnhXp' in b && (b as unknown as EnhXpBagItem).id === id); return idx >= 0 ? { source: 'stash' as const, idx, item: prev.stash[idx] as unknown as EnhXpBagItem } : null; })
+        .filter(Boolean) as { source: 'stash'; idx: number; item: EnhXpBagItem }[];
+      const enhXpItems = [...enhXpInBag, ...enhXpInStash];
       enhXpItems.forEach(({ item }) => { xpGained += item.xp; });
 
       // Calculate XP from sacrificed materials
@@ -2007,9 +2015,12 @@ export function useGameState(
         addLog(`⚡ Enhanced ${target.name}: +${xpGained} XP (${finalXp}/${threshold})`, "log-gem");
       }
 
-      // Remove consumed EnhXp items from bag
-      const enhXpIdxSet = new Set(enhXpItems.map((e) => e.idx));
-      const newBag = prev.bag.map((b, i) => enhXpIdxSet.has(i) ? null : b);
+      // Remove consumed EnhXp items from bag and stash
+      const enhXpBagIdxSet = new Set(enhXpInBag.map((e) => e.idx));
+      const enhXpStashIdxSet = new Set(enhXpInStash.map((e) => e.idx));
+      const newBag = prev.bag.map((b, i) => enhXpBagIdxSet.has(i) ? null : b);
+      // Remove stash EnhXp items (filter by index, preserving target item)
+      newStash = newStash.filter((_, i) => !enhXpStashIdxSet.has(i));
 
       return { ...prev, stash: newStash, materials: newMats, bag: newBag, equippedGear: newEquipped };
     });
