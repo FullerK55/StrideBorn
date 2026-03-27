@@ -120,6 +120,7 @@ export default function EnhanceTab({ state, actions }: Props) {
   const tierIdx = target ? TIER_ORDER.indexOf(target.tier) : -1;
   const isMaxTier = target ? ENHANCE_XP_THRESHOLDS[target.tier] === undefined : false;
   const nextTier = !isMaxTier && tierIdx >= 0 ? TIER_ORDER[tierIdx + 1] : null;
+  const alreadyOverThreshold = threshold !== null && currentXp >= threshold;
 
   // Progress bar
   const progressPct = threshold ? Math.min(100, ((currentXp + totalXpPreview) / threshold) * 100) : 100;
@@ -439,21 +440,27 @@ export default function EnhanceTab({ state, actions }: Props) {
               <span>Total: <span style={{ color: "#66ff88" }}>+{totalXpPreview}</span></span>
             </div>
 
-            {totalXpPreview === 0 && (
+                    {totalXpPreview === 0 && !alreadyOverThreshold && (
               <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ff6644", marginBottom: 8 }}>
                 Select at least one gear piece or material to sacrifice
+              </div>
+            )}
+            {alreadyOverThreshold && totalXpPreview === 0 && (
+              <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ffcc44", marginBottom: 8 }}>
+                ✦ XP already meets threshold — click ENHANCE to tier up!
               </div>
             )}
 
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <button
                 onClick={handleEnhance}
-                disabled={totalXpPreview === 0}
-                style={s.btn(totalXpPreview > 0, confirmPending ? "#ff4444" : "#aa88ff")}
-              >
+                disabled={totalXpPreview === 0 && !alreadyOverThreshold}
+                style={s.btn(totalXpPreview > 0 || alreadyOverThreshold, confirmPending ? "#ff4444" : alreadyOverThreshold && totalXpPreview === 0 ? "#ffcc44" : "#aa88ff")}>
                 {confirmPending
-                  ? "⚠ CONFIRM SACRIFICE?"
-                  : `⚗️ ENHANCE (+${totalXpPreview} XP)`}
+                  ? "⚠ CONFIRM TIER UP?"
+                  : alreadyOverThreshold && totalXpPreview === 0
+                    ? "✦ TIER UP NOW!"
+                    : `⚗️ ENHANCE (+${totalXpPreview} XP)`}
               </button>
               {confirmPending && (
                 <button

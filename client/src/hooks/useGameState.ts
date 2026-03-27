@@ -1918,7 +1918,9 @@ export function useGameState(
         }
       });
 
-      if (xpGained <= 0) { showNotif("SELECT ITEMS TO SACRIFICE!"); return prev; }
+      // Allow zero-sacrifice trigger when stored XP already meets threshold
+      const alreadyOverThreshold = target.enhancementXp >= threshold;
+      if (xpGained <= 0 && !alreadyOverThreshold) { showNotif("SELECT ITEMS TO SACRIFICE!"); return prev; }
 
       // Deduct sacrificed gear from stash
       const sacrificeSet = new Set(sacrificeGearIds);
@@ -1931,18 +1933,26 @@ export function useGameState(
         if (qty > 0) newMats[matType] = Math.max(0, (newMats[matType] ?? 0) - qty);
       });
 
-      // Apply XP to target and check for tier upgrade
+       // Apply XP to target and check for tier upgrade
       const newXp = target.enhancementXp + xpGained;
       const tierIdx = TIER_ORDER.indexOf(target.tier);
       let finalTier = target.tier;
       let finalXp = newXp;
       let upgraded = false;
-
       if (newXp >= threshold) {
-        // Upgrade tier
+        // Upgrade tier — carry over any excess XP beyond the threshold
         finalTier = TIER_ORDER[tierIdx + 1];
         finalXp = newXp - threshold;
         upgraded = true;
+        // If the new tier also has a threshold and excess XP meets it, keep cascading
+        let cascadeThreshold = ENHANCE_XP_THRESHOLDS[finalTier];
+        let cascadeTierIdx = TIER_ORDER.indexOf(finalTier);
+        while (cascadeThreshold !== undefined && finalXp >= cascadeThreshold) {
+          finalTier = TIER_ORDER[cascadeTierIdx + 1];
+          finalXp = finalXp - cascadeThreshold;
+          cascadeThreshold = ENHANCE_XP_THRESHOLDS[finalTier];
+          cascadeTierIdx = TIER_ORDER.indexOf(finalTier);
+        }
       }
 
       const tierLabelMap: Record<GearTier, string> = { iron: "Iron", steel: "Steel", shadow: "Shadow", void: "Void", celestial: "Celestial", obsidian: "Obsidian", runic: "Runic", spectral: "Spectral", primordial: "Primordial", eternal: "Eternal" };
