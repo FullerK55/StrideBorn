@@ -1,15 +1,18 @@
 // Stride Born — Main Game Page
 // Design: Neo-Retro Pixel RPG — dark dungeon terminal, idle walking mechanic
 // Character always walks automatically once in dungeon; player decides when to enter/return
+// Profile-aware: shows active profile name and switch profile button
 
 import { useState } from "react";
 import { useGameState, DUNGEONS, RARITY_COLORS } from "@/hooks/useGameState";
+import { useProfile } from "@/contexts/ProfileContext";
 import DungeonScene from "@/components/DungeonScene";
 
 type Tab = "bag" | "stash" | "gear" | "dungeons" | "log";
 
 export default function Home() {
-  const [state, actions] = useGameState();
+  const { activeProfile, updateProfileSave, setSwitchingProfile } = useProfile();
+  const [state, actions] = useGameState(activeProfile!, updateProfileSave);
   const [activeTab, setActiveTab] = useState<Tab>("bag");
 
   const dungeon = state.dungeons.find((d) => d.id === state.currentDungeon) ?? state.dungeons[0];
@@ -19,7 +22,6 @@ export default function Home() {
   let progressPct = 0;
   let progressLabel = "";
   let progressColor = "linear-gradient(90deg, #2244aa, #4466ff)";
-  let progressClass = "";
 
   if (state.isReturning) {
     progressPct = Math.min(100, (state.returnStepsWalked / state.returnStepsNeeded) * 100);
@@ -86,7 +88,7 @@ export default function Home() {
       }}>
 
         {/* HEADER */}
-        <div style={{ textAlign: "center", padding: "12px 0 8px" }}>
+        <div style={{ textAlign: "center", padding: "12px 0 4px", position: "relative" }}>
           <div
             className="animate-title-pulse pixel-font"
             style={{
@@ -101,6 +103,42 @@ export default function Home() {
           <div style={{ fontSize: 14, color: "var(--game-muted)", marginTop: 4, letterSpacing: 3 }}>
             ▸ WALK. DELVE. SURVIVE. ◂
           </div>
+
+          {/* Profile info + switch button */}
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            marginTop: 6,
+          }}>
+            <span style={{ fontSize: 16, color: "var(--gem)" }}>
+              {activeProfile?.avatar} {activeProfile?.name}
+            </span>
+            <button
+              onClick={() => setSwitchingProfile(true)}
+              className="pixel-font"
+              style={{
+                background: "none",
+                border: "1px solid var(--game-border)",
+                color: "var(--game-muted)",
+                fontFamily: "'Press Start 2P', monospace",
+                fontSize: 6,
+                padding: "3px 6px",
+                cursor: "pointer",
+                letterSpacing: 0.5,
+              }}
+            >
+              ⇄ SWITCH
+            </button>
+          </div>
+
+          {/* Auto-save indicator */}
+          {actions.lastSaved && (
+            <div style={{ fontSize: 11, color: "rgba(68,255,136,0.4)", marginTop: 2 }}>
+              ● AUTO-SAVED
+            </div>
+          )}
         </div>
 
         {/* STATS ROW */}
@@ -252,8 +290,8 @@ export default function Home() {
               style={{
                 flex: 1,
                 background: "none",
-                border: `2px solid ${!isActive ? "var(--game-border)" : "var(--game-border)"}`,
-                color: !isActive ? "var(--game-muted)" : "var(--game-muted)",
+                border: "2px solid var(--game-border)",
+                color: "var(--game-muted)",
                 fontFamily: "'Press Start 2P', monospace",
                 fontSize: 7,
                 padding: "8px 4px",
@@ -428,9 +466,9 @@ export default function Home() {
                     alignItems: "center",
                     gap: 10,
                     opacity: d.unlocked ? 1 : 0.4,
-                  transition: "all 0.15s",
-                }}
-              >
+                    transition: "all 0.15s",
+                  }}
+                >
                   <div style={{ fontSize: 28, flexShrink: 0 }}>{d.icon}</div>
                   <div style={{ flex: 1 }}>
                     <div className="pixel-font" style={{ fontSize: 8, color: "var(--gold)", marginBottom: 3 }}>

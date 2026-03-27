@@ -2,9 +2,11 @@
 // Stride Born — Game State Hook
 // Design: Idle dungeon crawler — character always walks automatically
 // Steps accumulate on their own; player decides when to enter/return
+// Profile-aware: loads from and auto-saves to the active profile
 // ============================================================
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import type { Profile } from "@/contexts/ProfileContext";
 
 // ============================================================
 // GAME DATA
@@ -150,6 +152,7 @@ export interface GameActions {
   log: LogEntry[];
   notification: string | null;
   lootPopups: LootPopup[];
+  lastSaved: number | null;
 }
 
 export interface LootPopup {
@@ -172,44 +175,29 @@ function weightedRandom(table: LootItem[]): LootItem {
   return table[0];
 }
 
-const SAVE_KEY = "strideborn_save_v1";
-
-function loadSave(): Partial<GameState> | null {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function buildInitialState(): GameState {
-  const saved = loadSave();
+function buildInitialState(profile: Profile): GameState {
   const dungeons = DUNGEONS.map((d) => ({
     ...d,
-    unlocked: saved
-      ? (saved.deepestFloor ?? 0) >= d.unlockFloor || d.unlockFloor === 0
-      : d.unlocked,
+    unlocked: (profile.deepestFloor ?? 0) >= d.unlockFloor || d.unlockFloor === 0,
   }));
 
   return {
     steps: 0,
-    totalSteps: saved?.totalSteps ?? 0,
+    totalSteps: profile.totalSteps ?? 0,
     currentFloor: 0,
-    deepestFloor: saved?.deepestFloor ?? 0,
+    deepestFloor: profile.deepestFloor ?? 0,
     stepsToNextFloor: 2000,
-    currentDungeon: saved?.currentDungeon ?? "crystal",
+    currentDungeon: profile.currentDungeon ?? "crystal",
     isInDungeon: false,
     isReturning: false,
     returnStepsNeeded: 0,
     returnStepsWalked: 0,
     bag: [],
     bagSize: 5,
-    stash: saved?.stash ?? [],
+    stash: (profile.stash as LootItem[]) ?? [],
     stashSize: 18,
-    runs: saved?.runs ?? 0,
-    lives: saved?.lives ?? 1,
+    runs: profile.runs ?? 0,
+    lives: profile.lives ?? 1,
     dungeons,
   };
 }
@@ -221,33 +209,59 @@ function buildInitialState(): GameState {
 let logIdCounter = 0;
 let popupIdCounter = 0;
 
-export function useGameState(): [GameState, GameActions] {
-  const [state, setState] = useState<GameState>(buildInitialState);
+export function useGameState(
+  profile: Profile,
+  onSave: (data: Partial<Profile>) => void
+): [GameState, GameActions] {
+  const [state, setState] = useState<GameState>(() => buildInitialState(profile));
   const [log, setLog] = useState<LogEntry[]>([
-    { id: logIdCounter++, text: "🗡 A new adventurer awakens...", cls: "log-muted", timestamp: Date.now() },
+    { id: logIdCounter++, text: `🗡 ${profile.name} awakens...`, cls: "log-muted", timestamp: Date.now() },
     { id: logIdCounter++, text: "💎 Crystal Caverns await your first steps.", cls: "log-gem", timestamp: Date.now() },
   ]);
   const [notification, setNotification] = useState<string | null>(null);
   const [lootPopups, setLootPopups] = useState<LootPopup[]>([]);
+  const [lastSaved, setLastSaved] = useState<number | null>(null);
 
   const stateRef = useRef(state);
   stateRef.current = state;
 
   const notifTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const walkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onSaveRef = useRef(onSave);
+  onSaveRef.current = onSave;
 
-  // ---- Persist save ----
+  // ---- Auto-save every 5 seconds ----
   useEffect(() => {
-    const toSave = {
+    saveTimerRef.current = setInterval(() => {
+      const s = stateRef.current;
+      onSaveRef.current({
+        totalSteps: s.totalSteps,
+        deepestFloor: s.deepestFloor,
+        currentDungeon: s.currentDungeon,
+        stash: s.stash,
+        runs: s.runs,
+        lives: s.lives,
+      });
+      setLastSaved(Date.now());
+    }, 5000);
+    return () => {
+      if (saveTimerRef.current) clearInterval(saveTimerRef.current);
+    };
+  }, []);
+
+  // ---- Also save immediately on stash/deepest/runs change ----
+  useEffect(() => {
+    onSaveRef.current({
       totalSteps: state.totalSteps,
       deepestFloor: state.deepestFloor,
       currentDungeon: state.currentDungeon,
       stash: state.stash,
       runs: state.runs,
       lives: state.lives,
-    };
-    localStorage.setItem(SAVE_KEY, JSON.stringify(toSave));
-  }, [state.totalSteps, state.deepestFloor, state.currentDungeon, state.stash, state.runs, state.lives]);
+    });
+    setLastSaved(Date.now());
+  }, [state.deepestFloor, state.stash, state.runs]);
 
   const addLog = useCallback((text: string, cls = "") => {
     setLog((prev) => [
@@ -295,9 +309,7 @@ export function useGameState(): [GameState, GameActions] {
 
     if (prev.isReturning) {
       const walked = prev.returnStepsWalked + n;
-      const remaining = Math.max(0, prev.returnStepsNeeded - walked);
       if (walked >= prev.returnStepsNeeded) {
-        // Will trigger arriveAtBase via effect
         return { ...next, returnStepsWalked: walked, returnStepsNeeded: prev.returnStepsNeeded };
       }
       return { ...next, returnStepsWalked: walked };
@@ -324,7 +336,7 @@ export function useGameState(): [GameState, GameActions] {
         setState((p) => ({ ...p, deepestFloor: floor }));
       }
 
-      addLog(`⬇ Descended to Floor ${floor}`, "log-green");
+      addLog(`⬇ Descended to floor ${floor}`, "log-gem");
 
       // Loot rolls
       const rolls = 1 + Math.floor(floor / 5);
@@ -443,10 +455,7 @@ export function useGameState(): [GameState, GameActions] {
   const startReturn = useCallback(() => {
     setState((prev) => {
       if (!prev.isInDungeon || prev.isReturning) return prev;
-      if (prev.currentFloor === 0) {
-        // Already at floor 0, just arrive at base
-        return prev;
-      }
+      if (prev.currentFloor === 0) return prev;
       const needed = prev.currentFloor * 2000;
       addLog(`↩ Returning to base — ${needed} steps needed`, "log-orange");
       return {
@@ -456,7 +465,6 @@ export function useGameState(): [GameState, GameActions] {
         returnStepsWalked: 0,
       };
     });
-    // If at floor 0, just arrive
     if (stateRef.current.currentFloor === 0) {
       arriveAtBase();
     }
@@ -491,11 +499,12 @@ export function useGameState(): [GameState, GameActions] {
     return () => {
       stopWalkInterval();
       if (notifTimerRef.current) clearTimeout(notifTimerRef.current);
+      if (saveTimerRef.current) clearInterval(saveTimerRef.current);
     };
   }, [stopWalkInterval]);
 
   return [
     state,
-    { enterDungeon, startReturn, selectDungeon, dropBagItem, log, notification, lootPopups },
+    { enterDungeon, startReturn, selectDungeon, dropBagItem, log, notification, lootPopups, lastSaved },
   ];
 }
