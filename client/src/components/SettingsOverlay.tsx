@@ -10,6 +10,15 @@ import { useProfile } from "@/contexts/ProfileContext";
 import type { GameState } from "@/hooks/useGameState";
 
 const NERD_MODE_KEY = "strideborn_nerd_mode";
+const LEAVE_ALONE_KEY = "strideborn_leave_alone";
+
+export function loadLeaveAloneMode(): boolean {
+  return localStorage.getItem(LEAVE_ALONE_KEY) === "true";
+}
+
+function saveLeaveAloneMode(v: boolean) {
+  localStorage.setItem(LEAVE_ALONE_KEY, v ? "true" : "false");
+}
 
 export function loadNerdMode(): boolean {
   return localStorage.getItem(NERD_MODE_KEY) === "true";
@@ -31,9 +40,11 @@ interface SettingsOverlayProps {
   state?: GameState;
   nerdMode: boolean;
   onNerdModeChange: (v: boolean) => void;
+  leaveAloneMode: boolean;
+  onLeaveAloneModeChange: (v: boolean) => void;
 }
 
-export default function SettingsOverlay({ onClose, onSaveNow, state, nerdMode, onNerdModeChange }: SettingsOverlayProps) {
+export default function SettingsOverlay({ onClose, onSaveNow, state, nerdMode, onNerdModeChange, leaveAloneMode, onLeaveAloneModeChange }: SettingsOverlayProps) {
   const { activeProfile, setSwitchingProfile } = useProfile();
 
   function handleSignOut() {
@@ -46,6 +57,12 @@ export default function SettingsOverlay({ onClose, onSaveNow, state, nerdMode, o
     const next = !nerdMode;
     saveNerdMode(next);
     onNerdModeChange(next);
+  }
+
+  function toggleLeaveAloneMode() {
+    const next = !leaveAloneMode;
+    saveLeaveAloneMode(next);
+    onLeaveAloneModeChange(next);
   }
 
   // Book drop % = 2% base + 1% per consecutive miss
@@ -271,6 +288,40 @@ export default function SettingsOverlay({ onClose, onSaveNow, state, nerdMode, o
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {/* Leave Me Alone Mode — suppress all popups for AFK */}
+            <div
+              onClick={toggleLeaveAloneMode}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "10px 12px",
+                cursor: "pointer",
+                background: leaveAloneMode ? "rgba(255,170,0,0.06)" : "transparent",
+                border: `1px solid ${leaveAloneMode ? "rgba(255,170,0,0.35)" : "rgba(58,58,106,0.3)"}`,
+                borderRadius: 4,
+                transition: "background 0.15s",
+                marginBottom: 4,
+              }}
+            >
+              <div>
+                <span style={{ fontSize: 15, color: "var(--game-text)" }}>🤫 Leave Me Alone Mode</span>
+                <div style={{ fontSize: 12, color: "var(--game-muted)", marginTop: 2 }}>
+                  Skips vendors, anvils, bosses · full AFK
+                </div>
+              </div>
+              <span className="pixel-font" style={{
+                fontSize: 8,
+                color: leaveAloneMode ? "#ffaa00" : "var(--game-muted)",
+                border: `1px solid ${leaveAloneMode ? "#ffaa00" : "var(--game-border)"}`,
+                padding: "3px 6px",
+                flexShrink: 0,
+                marginLeft: 10,
+              }}>
+                {leaveAloneMode ? "ON" : "OFF"}
+              </span>
+            </div>
+
             {/* Nerd Mode — functional toggle */}
             <div
               onClick={toggleNerdMode}

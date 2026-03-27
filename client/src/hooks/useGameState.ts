@@ -1001,8 +1001,11 @@ let popupIdCounter = 0;
 
 export function useGameState(
   profile: Profile,
-  onSave: (data: Partial<Profile>) => void
+  onSave: (data: Partial<Profile>) => void,
+  leaveAloneMode = false
 ): [GameState, GameActions] {
+  const leaveAloneModeRef = useRef(leaveAloneMode);
+  leaveAloneModeRef.current = leaveAloneMode;
   const offlineResult = useRef<ReturnType<typeof calculateOfflineProgress>>(null);
   const offlineSummaryRef = useRef<OfflineSummary | null>(null);
   const resumeInDungeonRef = useRef(false);
@@ -1247,13 +1250,17 @@ export function useGameState(
       if (floor % 10 === 0) {
         const isMegaBoss = floor % 100 === 0;
         if (isMegaBoss) {
-          showNotif(`☠️ MEGA BOSS FLOOR ${floor}!`);
-          addLog(`☠️ MEGA BOSS on floor ${floor}! Choose your reward!`, "log-red");
-          stopWalkInterval();
-          setState((prev) => ({
-            ...prev,
-            activeMegaBoss: { floor, rewardChosen: false },
-          }));
+          if (leaveAloneModeRef.current) {
+            addLog(`☠️ Mega boss on floor ${floor} skipped (Leave Me Alone Mode).`, "log-muted");
+          } else {
+            showNotif(`☠️ MEGA BOSS FLOOR ${floor}!`);
+            addLog(`☠️ MEGA BOSS on floor ${floor}! Choose your reward!`, "log-red");
+            stopWalkInterval();
+            setState((prev) => ({
+              ...prev,
+              activeMegaBoss: { floor, rewardChosen: false },
+            }));
+          }
         } else {
           showNotif(`💀 BOSS FLOOR ${floor}!`);
           addLog(`💀 Mini boss on floor ${floor}!`, "log-red");
@@ -1305,49 +1312,50 @@ export function useGameState(
       });
 
       // Vendor spawn: random floor every 10-20 floors
-      setState((prev) => {
-        if (prev.activeVendor) return prev; // already has vendor
-        // Seed vendor appearance: every 10-20 floors randomly
-        const vendorInterval = 10 + Math.floor(Math.random() * 11);
-        if (floor > 0 && floor % vendorInterval === 0) {
-          const vendorItems = generateVendorItems(floor);
-          stopWalkInterval();
-          showNotif(`🛒 VENDOR ON FLOOR ${floor}!`);
-          addLog(`🛒 A wandering vendor appeared on floor ${floor}!`, "log-gold");
-          return { ...prev, activeVendor: { floor, items: vendorItems, rerollUsed: false, mergeUsed: false } };
-        }
-        return prev;
-      });
-
-      // Anvil spawn: after floor 100, every 15-25 floors (never same floor as vendor)
-      setState((prev) => {
-        if (prev.activeVendor || prev.activeAnvil || prev.activeFence) return prev; // already paused
-        if (floor > 100) {
-          const anvilInterval = 15 + Math.floor(Math.random() * 11);
-          if (floor % anvilInterval === 0) {
+      if (!leaveAloneModeRef.current) {
+        setState((prev) => {
+          if (prev.activeVendor) return prev; // already has vendor
+          const vendorInterval = 10 + Math.floor(Math.random() * 11);
+          if (floor > 0 && floor % vendorInterval === 0) {
+            const vendorItems = generateVendorItems(floor);
             stopWalkInterval();
-            showNotif(`⚔️ ANVIL ON FLOOR ${floor}!`);
-            addLog(`⚔️ A weathered anvil sits on floor ${floor}!`, "log-gem");
-            return { ...prev, activeAnvil: { floor } };
+            showNotif(`🛍️ VENDOR ON FLOOR ${floor}!`);
+            addLog(`🛍️ A wandering vendor appeared on floor ${floor}!`, "log-gold");
+            return { ...prev, activeVendor: { floor, items: vendorItems, rerollUsed: false, mergeUsed: false } };
           }
-        }
-        return prev;
-      });
+          return prev;
+        });
 
-      // Fence spawn: after floor 50, every 20-30 floors (never same floor as vendor or anvil)
-      setState((prev) => {
-        if (prev.activeVendor || prev.activeAnvil || prev.activeFence) return prev;
-        if (floor > 50) {
-          const fenceInterval = 20 + Math.floor(Math.random() * 11);
-          if (floor % fenceInterval === 0) {
-            stopWalkInterval();
-            showNotif(`💸 FENCE ON FLOOR ${floor}!`);
-            addLog(`💸 A shady fence lurks on floor ${floor}...`, "log-muted");
-            return { ...prev, activeFence: { floor } };
+        // Anvil spawn: after floor 100, every 15-25 floors
+        setState((prev) => {
+          if (prev.activeVendor || prev.activeAnvil || prev.activeFence) return prev;
+          if (floor > 100) {
+            const anvilInterval = 15 + Math.floor(Math.random() * 11);
+            if (floor % anvilInterval === 0) {
+              stopWalkInterval();
+              showNotif(`⚔️ ANVIL ON FLOOR ${floor}!`);
+              addLog(`⚔️ A weathered anvil sits on floor ${floor}!`, "log-gem");
+              return { ...prev, activeAnvil: { floor } };
+            }
           }
-        }
-        return prev;
-      });
+          return prev;
+        });
+
+        // Fence spawn: after floor 50, every 20-30 floors
+        setState((prev) => {
+          if (prev.activeVendor || prev.activeAnvil || prev.activeFence) return prev;
+          if (floor > 50) {
+            const fenceInterval = 20 + Math.floor(Math.random() * 11);
+            if (floor % fenceInterval === 0) {
+              stopWalkInterval();
+              showNotif(`💸 FENCE ON FLOOR ${floor}!`);
+              addLog(`💸 A shady fence lurks on floor ${floor}...`, "log-muted");
+              return { ...prev, activeFence: { floor } };
+            }
+          }
+          return prev;
+        });
+      }
 
       // Quest progress: reach_floor
       setState((prev) => {
