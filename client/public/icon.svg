@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" shape-rendering="crispEdges">
+  <!-- Background -->
+  <rect width="512" height="512" fill="#0a0a1a"/>
+  <!-- Border -->
+  <rect x="16" y="16" width="480" height="480" fill="none" stroke="#FFD700" stroke-width="16"/>
+  <!-- Inner glow border -->
+  <rect x="32" y="32" width="448" height="448" fill="none" stroke="#B8860B" stroke-width="4"/>
+
+  <!-- Pixel character scaled up (original 16x24 → ~160x240 centered) -->
+  <!-- Scale: 10x, offset: x=176, y=136 -->
+
+  <!-- Body -->
+  <rect x="226" y="216" width="60" height="80" fill="#4488ff"/>
+  <!-- Head -->
+  <rect x="216" y="136" width="80" height="70" fill="#ffcc88"/>
+  <!-- Eyes -->
+  <rect x="226" y="156" width="20" height="20" fill="#222"/>
+  <rect x="266" y="156" width="20" height="20" fill="#222"/>
+  <!-- Helmet -->
+  <rect x="206" y="126" width="100" height="40" fill="#888899"/>
+  <rect x="216" y="106" width="80" height="20" fill="#aaaacc"/>
+  <!-- Legs -->
+  <rect x="226" y="296" width="20" height="40" fill="#334488"/>
+  <rect x="266" y="296" width="20" height="40" fill="#334488"/>
+  <!-- Boots -->
+  <rect x="216" y="336" width="30" height="30" fill="#553311"/>
+  <rect x="266" y="336" width="30" height="30" fill="#553311"/>
+  <!-- Sword -->
+  <rect x="296" y="216" width="20" height="100" fill="#ccccdd"/>
+  <rect x="276" y="226" width="40" height="20" fill="#aa8800"/>
+  <!-- Shield -->
+  <rect x="196" y="216" width="30" height="50" fill="#884400"/>
+  <rect x="196" y="216" width="30" height="10" fill="#aa5500"/>
+
+  <!-- Gold title text pixels (simplified) -->
+  <rect x="176" y="400" width="160" height="4" fill="#FFD700" opacity="0.6"/>
+  <rect x="196" y="412" width="120" height="4" fill="#B8860B" opacity="0.4"/>
+</svg>
