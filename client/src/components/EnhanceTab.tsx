@@ -335,6 +335,33 @@ export default function EnhanceTab({ state, actions }: Props) {
         )}
       </div>
 
+      {/* TIER UP NOW — shown inline right after target card when already over threshold */}
+      {target && !isMaxTier && alreadyOverThreshold && (
+        <div style={{ ...s.section, border: "1px solid #ffcc44", background: "rgba(255,204,68,0.06)", marginBottom: 10 }}>
+          <div style={{ fontFamily: "'VT323', monospace", fontSize: 15, color: "#ffcc44", marginBottom: 8 }}>
+            ✦ XP threshold met — ready to tier up!
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              onClick={handleEnhance}
+              style={s.btn(true, confirmPending ? "#ff4444" : "#ffcc44")}>
+              {confirmPending ? "⚠ CONFIRM TIER UP?" : "✦ TIER UP NOW!"}
+            </button>
+            {confirmPending && (
+              <button
+                onClick={() => setConfirmPending(false)}
+                style={{ fontFamily: "'VT323', monospace", fontSize: 13, background: "none", border: "1px solid #444", color: "#888", padding: "6px 10px", cursor: "pointer", borderRadius: 3 }}
+              >Cancel</button>
+            )}
+          </div>
+          {confirmPending && (
+            <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#ff8844", marginTop: 6 }}>
+              ⚠ Stats will be re-rolled at the new tier!
+            </div>
+          )}
+        </div>
+      )}
+
       {/* STEP 2 — Select Sacrifices (only shown once target is selected) */}
       {target && !isMaxTier && (
         <>
