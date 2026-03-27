@@ -428,6 +428,7 @@ export default function Home() {
                 <span>BAG ({bagUsed}/{state.bagSize} slots used)</span>
                 <span style={{ fontSize: 12 }}>tap item to drop</span>
               </div>
+              <div style={{ overflowY: "auto", maxHeight: "calc(5 * ((min(480px, 100vw) - 56px) / 5) + 4 * 4px)", scrollbarWidth: "thin", scrollbarColor: "var(--game-border) transparent" }}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4 }}>
                 {Array.from({ length: state.bagSize }).map((_, i) => {
                   const item = state.bag[i];
@@ -475,6 +476,7 @@ export default function Home() {
                     </div>
                   );
                 })}
+              </div>
               </div>
               <div style={{ marginTop: 8, fontSize: 11, color: "#555", fontFamily: "'VT323', monospace" }}>
                 Gear: tap in Gear tab to equip. Materials: auto-sorted to Mats tab at base.
