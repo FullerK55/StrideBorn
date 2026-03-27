@@ -102,6 +102,7 @@ export default function AnvilModal({ state, actions }: Props) {
 
   if (!activeAnvil) return null;
 
+  const isBaseAnvil = activeAnvil.floor === 0;
   const poolBalance = state.enhancementXpPool;
 
   // All bag gear
@@ -109,6 +110,17 @@ export default function AnvilModal({ state, actions }: Props) {
     .map((b, idx) => ({ idx, b }))
     .filter(({ b }) => b && 'isGear' in b && (b as GearItem).isGear === true)
     .map(({ idx, b }) => ({ idx, gear: b as GearItem }));
+
+  // Stash gear (only available at base anvil)
+  const stashGear: { gear: GearItem }[] = isBaseAnvil
+    ? state.stash.map((g) => ({ gear: g }))
+    : [];
+
+  // Combined list for manual/mass selection
+  const allGear = [
+    ...bagGear.map(({ gear }) => gear),
+    ...stashGear.map(({ gear }) => gear),
+  ];
 
   // ── Manual helpers ─────────────────────────────────────────
   const toggleSelect = (id: string) => {
@@ -139,7 +151,7 @@ export default function AnvilModal({ state, actions }: Props) {
   const maxRarityIdx = RARITY_ORDER.indexOf(massMaxRarity);
 
   const massMatches = useMemo(() => {
-    return bagGear.filter(({ gear }) => {
+    return allGear.filter((gear) => {
       const rarityIdx = RARITY_ORDER.indexOf(gear.rarity);
       if (rarityIdx > maxRarityIdx) return false;
       if (massSlots.size > 0 && !massSlots.has(gear.slot)) return false;
@@ -147,8 +159,8 @@ export default function AnvilModal({ state, actions }: Props) {
     });
   }, [bagGear, maxRarityIdx, massSlots]);
 
-  const massTotalXp = massMatches.reduce((sum, { gear }) => sum + calcEnhXp(gear), 0);
-  const massTotalCost = massMatches.reduce((sum, { gear }) => sum + ANVIL_COST_PER_TIER[gear.tier], 0);
+  const massTotalXp = massMatches.reduce((sum, gear) => sum + calcEnhXp(gear), 0);
+  const massTotalCost = massMatches.reduce((sum, gear) => sum + ANVIL_COST_PER_TIER[gear.tier], 0);
   const massCanAfford = state.gold >= massTotalCost;
 
   const toggleMassSlot = (slot: GearSlot) => {
@@ -164,11 +176,18 @@ export default function AnvilModal({ state, actions }: Props) {
   const handleMassBreakdown = () => {
     if (massMatches.length === 0) return;
     if (!massConfirmed) { setMassConfirmed(true); return; }
-    actions.anvilBreakdown(massMatches.map(({ gear }) => gear.id));
+    actions.anvilBreakdown(massMatches.map((gear) => gear.id));
     setMassConfirmed(false);
   };
 
-  const handleDismiss = () => actions.dismissAnvil();
+  const handleDismiss = () => {
+    if (isBaseAnvil) {
+      // At base: just close the modal, don't restart walk interval
+      actions.dismissAnvil();
+    } else {
+      actions.dismissAnvil();
+    }
+  };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.87)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: "0 16px" }}>
@@ -181,7 +200,7 @@ export default function AnvilModal({ state, actions }: Props) {
               ⚔️ ANVIL
             </div>
             <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#666", marginTop: 3 }}>
-              Floor {activeAnvil.floor} · Break gear into Enhancement XP
+              {isBaseAnvil ? "Base · Bag & Stash · Break gear into Enh XP" : `Floor ${activeAnvil.floor} · Break gear into Enhancement XP`}
             </div>
           </div>
           <button onClick={handleDismiss} style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 8, background: "transparent", color: "#555", border: "1px solid #333", borderRadius: 3, padding: "5px 8px", cursor: "pointer" }}>
@@ -254,10 +273,14 @@ export default function AnvilModal({ state, actions }: Props) {
 
               <div style={s.sectionTitle}>SELECT GEAR TO BREAK DOWN</div>
 
-              {bagGear.length === 0 ? (
-                <div style={{ ...s.muted, textAlign: "center", padding: "20px 0" }}>No gear in bag.</div>
+              {bagGear.length === 0 && stashGear.length === 0 ? (
+                <div style={{ ...s.muted, textAlign: "center", padding: "20px 0" }}>No gear in bag{isBaseAnvil ? " or stash" : ""}.</div>
               ) : (
-                bagGear.map(({ gear }) => {
+                <>
+                {bagGear.length > 0 && (
+                  <>
+                    {isBaseAnvil && <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#88ccff", marginBottom: 4, letterSpacing: 1 }}>🎒 BAG</div>}
+                    {bagGear.map(({ gear }) => {
                   const isSelected = selectedIds.has(gear.id);
                   const enhXp = calcEnhXp(gear);
                   const fullXp = TIER_XP_VALUE[gear.tier] * RARITY_XP_VALUE[gear.rarity] * 10;
@@ -286,7 +309,41 @@ export default function AnvilModal({ state, actions }: Props) {
                       <div style={{ width: 14, height: 14, border: `2px solid ${isSelected ? "#ff6622" : "#444"}`, borderRadius: 2, background: isSelected ? "#ff6622" : "transparent", flexShrink: 0 }} />
                     </div>
                   );
-                })
+                })}
+                  </>
+                )}
+                {isBaseAnvil && stashGear.length > 0 && (
+                  <>
+                    <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#aaaacc", margin: "8px 0 4px", letterSpacing: 1 }}>📦 STASH</div>
+                    {stashGear.map(({ gear }) => {
+                      const isSelected = selectedIds.has(gear.id);
+                      const enhXp = calcEnhXp(gear);
+                      const fullXp = TIER_XP_VALUE[gear.tier] * RARITY_XP_VALUE[gear.rarity] * 10;
+                      return (
+                        <div key={gear.id} style={s.itemRow(isSelected)} onClick={() => toggleSelect(gear.id)}>
+                          <span style={{ fontSize: 18 }}>{gear.emoji}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontFamily: "'VT323', monospace", fontSize: 15, color: RARITY_COLORS[gear.rarity], overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {gear.name}
+                            </div>
+                            <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#666" }}>
+                              {RARITY_LABELS[gear.rarity]} · {TIER_LABELS[gear.tier]} · {getSlotLabel(gear.slot)}
+                            </div>
+                            <div style={{ fontFamily: "'VT323', monospace", fontSize: 11, color: "#444" }}>
+                              Full XP: {fullXp} → Pool: +{enhXp}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "right", flexShrink: 0 }}>
+                            <div style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 7, color: "#ff8844" }}>+{enhXp} XP</div>
+                            <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#ffcc44" }}>{ANVIL_COST_PER_TIER[gear.tier]}g</div>
+                          </div>
+                          <div style={{ width: 14, height: 14, border: `2px solid ${isSelected ? "#ff6622" : "#444"}`, borderRadius: 2, background: isSelected ? "#ff6622" : "transparent", flexShrink: 0 }} />
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+                </>
               )}
             </>
           )}
@@ -353,7 +410,7 @@ export default function AnvilModal({ state, actions }: Props) {
                 </div>
               ) : (
                 <div style={{ maxHeight: 200, overflowY: "auto" }}>
-                  {massMatches.map(({ gear }) => {
+                  {massMatches.map((gear) => {
                     const enhXp = calcEnhXp(gear);
                     return (
                       <div key={gear.id} style={{

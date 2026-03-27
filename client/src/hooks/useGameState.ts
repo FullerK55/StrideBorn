@@ -514,6 +514,7 @@ export interface GameActions {
   enhanceGear: (targetId: string, sacrificeGearIds: string[], sacrificeMaterials: Partial<Materials>, enhXpPoolAmount?: number) => void;
   anvilBreakdown: (gearIds: string[]) => void;
   dismissAnvil: () => void;
+  openBaseAnvil: () => void;
   vendorMergeEnhXp: () => void;
   fenceSellGear: (gearId: string) => void;
   dismissFence: () => void;
@@ -2022,9 +2023,17 @@ export function useGameState(
   const anvilBreakdown = useCallback((gearIds: string[]) => {
     setState((prev) => {
       if (!prev.activeAnvil) return prev;
-      const gearToBreak = gearIds
-        .map((id) => { const idx = prev.bag.findIndex((b) => b && 'isGear' in b && (b as GearItem).id === id); return idx >= 0 ? { idx, gear: prev.bag[idx] as GearItem } : null; })
-        .filter(Boolean) as { idx: number; gear: GearItem }[];
+      // Search bag first, then stash (base anvil can break down stash gear too)
+      const gearToBreak: { gear: GearItem; fromStash: boolean; bagIdx: number }[] = [];
+      for (const id of gearIds) {
+        const bagIdx = prev.bag.findIndex((b) => b && 'isGear' in b && (b as GearItem).id === id);
+        if (bagIdx >= 0) {
+          gearToBreak.push({ gear: prev.bag[bagIdx] as GearItem, fromStash: false, bagIdx });
+        } else {
+          const stashItem = prev.stash.find((g) => g.id === id);
+          if (stashItem) gearToBreak.push({ gear: stashItem, fromStash: true, bagIdx: -1 });
+        }
+      }
       if (gearToBreak.length === 0) { showNotif("SELECT GEAR TO BREAK DOWN!"); return prev; }
 
       // Calculate total gold cost
@@ -2032,16 +2041,19 @@ export function useGameState(
       if (prev.gold < totalCost) { showNotif(`NEED ${totalCost}g TO BREAK DOWN!`); return prev; }
 
       const newBag = [...prev.bag];
+      const removedStashIds = new Set<string>();
       let totalXp = 0;
-      gearToBreak.forEach(({ idx, gear }) => {
+      gearToBreak.forEach(({ bagIdx, gear, fromStash }) => {
         const rawXp = TIER_XP_VALUE[gear.tier] * RARITY_XP_VALUE[gear.rarity] * 10;
         const enhXp = Math.max(1, Math.floor(rawXp * 0.1)); // 10% of full XP
-        newBag[idx] = null; // remove gear from bag
+        if (!fromStash) newBag[bagIdx] = null;
+        else removedStashIds.add(gear.id);
         totalXp += enhXp;
         addLog(`⚔️ Broke down ${gear.name} → +${enhXp} Enh XP (-${ANVIL_COST_PER_TIER[gear.tier]}g)`, "log-gem");
       });
+      const newStash = removedStashIds.size > 0 ? prev.stash.filter((g) => !removedStashIds.has(g.id)) : prev.stash;
       showNotif(`ANVIL: +${totalXp} ENH XP ADDED TO POOL`);
-      return { ...prev, bag: newBag, gold: prev.gold - totalCost, enhancementXpPool: prev.enhancementXpPool + totalXp };
+      return { ...prev, bag: newBag, stash: newStash, gold: prev.gold - totalCost, enhancementXpPool: prev.enhancementXpPool + totalXp };
     });
   }, [addLog, showNotif]);
 
@@ -2050,6 +2062,13 @@ export function useGameState(
     startWalkInterval();
     addLog("⚔️ Anvil dismissed. Continuing...", "log-muted");
   }, [addLog, startWalkInterval]);
+
+  const openBaseAnvil = useCallback(() => {
+    setState((prev) => {
+      if (prev.isInDungeon || prev.isReturning) return prev;
+      return { ...prev, activeAnvil: { floor: 0 } }; // floor 0 = base anvil
+    });
+  }, []);
 
   // ---- Mega Boss / Enchanting Table / Book actions ----
   const chooseMegaBossReward = useCallback((reward: MegaBossReward) => {
@@ -2242,6 +2261,7 @@ export function useGameState(
       enhanceGear,
       anvilBreakdown,
       dismissAnvil,
+      openBaseAnvil,
       vendorMergeEnhXp,
       fenceSellGear,
       dismissFence,

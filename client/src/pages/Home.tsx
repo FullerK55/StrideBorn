@@ -282,6 +282,7 @@ export default function Home() {
           {/* Action buttons */}
           <div style={{ display: "flex", gap: 8 }}>
             {!isActive ? (
+              <>
               <button
                 onClick={actions.enterDungeon}
                 style={{
@@ -299,6 +300,23 @@ export default function Home() {
               >
                 ▶ ENTER DUNGEON
               </button>
+              <button
+                onClick={actions.openBaseAnvil}
+                style={{
+                  flex: 1,
+                  background: "none",
+                  border: "2px solid #ff8844",
+                  color: "#ff8844",
+                  fontFamily: "'Press Start 2P', monospace",
+                  fontSize: 7,
+                  padding: "8px 4px",
+                  cursor: "pointer",
+                  letterSpacing: 0.5,
+                }}
+              >
+                ⚔️ ANVIL
+              </button>
+              </>
             ) : (
               <div
                 style={{
