@@ -2019,7 +2019,7 @@ export function useGameState(
       gearToBreak.forEach(({ idx, gear }) => {
         const rawXp = TIER_XP_VALUE[gear.tier] * RARITY_XP_VALUE[gear.rarity] * 10;
         const enhXp = Math.max(1, Math.floor(rawXp * 0.1)); // 10% of full XP
-        const enhItem = { id: `enhxp_${Date.now()}_${idx}`, xp: enhXp, sourceSlot: gear.slot, isEnhXp: true as const };
+        const enhItem: EnhancementXpItem = { id: `enhxp_${Date.now()}_${idx}`, xp: enhXp, level: 1, qty: 1, sourceSlot: gear.slot, isEnhXp: true };
         newBag[idx] = enhItem as unknown as BagItem;
         totalXp += enhXp;
         addLog(`⚔️ Broke down ${gear.name} → ${enhXp} Enh XP (-${ANVIL_COST_PER_TIER[gear.tier]}g)`, "log-gem");

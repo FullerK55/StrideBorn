@@ -435,6 +435,8 @@ export default function EnhanceTab({ state, actions }: Props) {
                 {bagEnhXpItems.map((item) => {
                   const selected = enhXpIds.has(item.id);
                   const slotLabel = item.sourceSlot ? item.sourceSlot.charAt(0).toUpperCase() + item.sourceSlot.slice(1) : "?";
+                  const itemLevel = item.level ?? 1;
+                  const itemQty = item.qty ?? 1;
                   return (
                     <div
                       key={item.id}
@@ -444,10 +446,10 @@ export default function EnhanceTab({ state, actions }: Props) {
                       <span style={{ fontSize: 20 }}>✨</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ffaa44" }}>
-                          Lv.{item.level} Enhancement XP
+                          Lv.{itemLevel} Enhancement XP
                         </div>
                         <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#666" }}>
-                          From: {slotLabel} · Qty: {item.qty}
+                          From: {slotLabel} · Qty: {itemQty}
                         </div>
                       </div>
                       <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: selected ? "#66ff88" : "#ffaa44", textAlign: "right", flexShrink: 0 }}>
