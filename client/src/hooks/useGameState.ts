@@ -1388,8 +1388,25 @@ export function useGameState(
       let gearStashed = 0;
       let matsCollected = 0;
 
+      // Build new bag — preserve EnhXp items and books in their slots; clear everything else
+      const newBag: (BagItem | null)[] = Array(prev.bagSize).fill(null);
+      let enhXpSlot = 0;
+
       prev.bag.forEach((item) => {
         if (!item) return;
+        if ('isEnhXp' in item) {
+          // Keep EnhXp items in bag — they are a held resource, not auto-sorted
+          const slot = newBag.findIndex((s) => s === null);
+          if (slot >= 0) newBag[slot] = item;
+          enhXpSlot++;
+          return;
+        }
+        if ('isBook' in item) {
+          // Keep books in bag too
+          const slot = newBag.findIndex((s) => s === null);
+          if (slot >= 0) newBag[slot] = item;
+          return;
+        }
         if ('isMaterial' in item) {
           const mat = item as MaterialItem;
           newMaterials[mat.type] = (newMaterials[mat.type] ?? 0) + mat.qty;
@@ -1406,7 +1423,8 @@ export function useGameState(
 
       if (gearStashed > 0) addLog(`📦 Stashed ${gearStashed} gear piece${gearStashed > 1 ? "s" : ""}!`, "log-green");
       if (matsCollected > 0) addLog(`⚙️ Collected materials!`, "log-gem");
-      if (gearStashed === 0 && matsCollected === 0) addLog("🏠 Returned to base empty-handed.", "log-muted");
+      if (enhXpSlot > 0) addLog(`✨ ${enhXpSlot} Enh XP item${enhXpSlot > 1 ? "s" : ""} kept in bag.`, "log-gem");
+      if (gearStashed === 0 && matsCollected === 0 && enhXpSlot === 0) addLog("🏠 Returned to base empty-handed.", "log-muted");
       addLog("🏠 Back at base. Rest up, adventurer.", "log-gold");
       showNotif("🏠 BACK AT BASE!");
 
@@ -1418,7 +1436,7 @@ export function useGameState(
         steps: 0,
         returnStepsWalked: 0,
         returnStepsNeeded: 0,
-        bag: Array(prev.bagSize).fill(null),
+        bag: newBag,
         stash: newStash,
         materials: newMaterials,
       };
