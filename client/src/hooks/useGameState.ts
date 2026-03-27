@@ -1885,7 +1885,11 @@ export function useGameState(
   const enhanceGear = useCallback((targetId: string, sacrificeGearIds: string[], sacrificeMaterials: Partial<Materials>, sacrificeEnhXpIds: string[] = []) => {
     setState((prev) => {
       if (prev.isInDungeon) { showNotif("RETURN TO BASE TO ENHANCE!"); return prev; }
-      const target = prev.stash.find((g) => g.id === targetId);
+      // Target can be in stash OR in an equipped slot
+      const targetInStash = prev.stash.find((g) => g.id === targetId);
+      const SLOTS_LIST: GearSlot[] = ["helmet","gloves","chest","pants","boots","backpack","weapon","ring","amulet"];
+      const equippedSlot = SLOTS_LIST.find((sl) => prev.equippedGear[sl]?.id === targetId);
+      const target = targetInStash ?? (equippedSlot ? prev.equippedGear[equippedSlot] : null);
       if (!target) return prev;
       const threshold = ENHANCE_XP_THRESHOLDS[target.tier];
       if (threshold === undefined) { showNotif("ALREADY MAX TIER!"); return prev; }
@@ -1943,13 +1947,20 @@ export function useGameState(
 
       const tierLabelMap: Record<GearTier, string> = { iron: "Iron", steel: "Steel", shadow: "Shadow", void: "Void", celestial: "Celestial", obsidian: "Obsidian", runic: "Runic", spectral: "Spectral", primordial: "Primordial", eternal: "Eternal" };
       const slotInfo = GEAR_SLOTS.find((s) => s.id === target.slot)!;
-      newStash = newStash.map((g) => g.id === targetId ? {
-        ...g,
+      const updatedItem = {
+        ...target,
         tier: finalTier,
         name: `${tierLabelMap[finalTier]} ${slotInfo.label}`,
-        stats: upgraded ? rollStats(g.slot, g.rarity, finalTier) : g.stats,
+        stats: upgraded ? rollStats(target.slot, target.rarity, finalTier) : target.stats,
         enhancementXp: finalXp,
-      } : g);
+      };
+      // Update in stash (if it was there) or in equippedGear (if it was equipped)
+      newStash = targetInStash
+        ? newStash.map((g) => g.id === targetId ? updatedItem : g)
+        : newStash;
+      const newEquipped = equippedSlot
+        ? { ...prev.equippedGear, [equippedSlot]: updatedItem }
+        : prev.equippedGear;
 
       if (upgraded) {
         addLog(`✨ Enhanced ${target.name} → ${TIER_LABELS[finalTier]}! (+${xpGained} XP)`, "log-gold");
@@ -1962,7 +1973,7 @@ export function useGameState(
       const enhXpIdxSet = new Set(enhXpItems.map((e) => e.idx));
       const newBag = prev.bag.map((b, i) => enhXpIdxSet.has(i) ? null : b);
 
-      return { ...prev, stash: newStash, materials: newMats, bag: newBag };
+      return { ...prev, stash: newStash, materials: newMats, bag: newBag, equippedGear: newEquipped };
     });
   }, [addLog, showNotif]);
 

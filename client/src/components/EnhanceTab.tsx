@@ -16,6 +16,7 @@ import {
   RARITY_XP_VALUE,
   MATERIAL_XP_VALUE,
   MATERIAL_INFO,
+  GEAR_SLOTS,
 } from "@/hooks/useGameState";
 
 interface Props {
@@ -88,10 +89,19 @@ export default function EnhanceTab({ state, actions }: Props) {
   const [matQty, setMatQty] = useState<Partial<Record<MaterialType, number>>>({});
   const [confirmPending, setConfirmPending] = useState(false);
 
-  const target = targetId ? state.stash.find((g) => g.id === targetId) ?? null : null;
+  // Target can be in stash OR equipped
+  const equippedList: GearItem[] = GEAR_SLOTS
+    .map((sl) => state.equippedGear[sl.id])
+    .filter((g): g is GearItem => g !== null);
 
-  // Stash items eligible as sacrifice (not the target itself)
-  const sacrificeCandidates = state.stash.filter((g) => g.id !== targetId);
+  const target = targetId
+    ? (state.stash.find((g) => g.id === targetId) ?? equippedList.find((g) => g.id === targetId) ?? null)
+    : null;
+
+  // Stash items eligible as sacrifice (not the target itself, same slot as target)
+  const sacrificeCandidates = target
+    ? state.stash.filter((g) => g.id !== targetId && g.slot === target.slot)
+    : state.stash.filter((g) => g.id !== targetId);
 
   // XP preview
   const xpFromGear = Array.from(sacrificeIds).reduce((sum, id) => {
@@ -261,12 +271,44 @@ export default function EnhanceTab({ state, actions }: Props) {
             )}
           </div>
         ) : (
-          /* Target picker list */
-          state.stash.length === 0 ? (
-            <div style={s.muted}>No gear in stash</div>
-          ) : (
-            <div style={{ maxHeight: 180, overflowY: "auto" }}>
-              {state.stash.map((gear) => (
+          /* Target picker list — equipped first, then stash */
+          <div style={{ maxHeight: 220, overflowY: "auto" }}>
+            {/* EQUIPPED section */}
+            {equippedList.length > 0 && (
+              <>
+                <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#00ffcc", marginBottom: 4, letterSpacing: 1 }}>⚔ EQUIPPED</div>
+                {equippedList.map((gear) => (
+                  <div
+                    key={gear.id}
+                    onClick={() => { setTargetId(gear.id); setSacrificeIds(new Set()); setMatQty({}); }}
+                    style={{ ...s.itemRow(false, RARITY_COLORS[gear.rarity]), borderColor: "#00ffcc44" }}
+                  >
+                    <span style={{ fontSize: 20 }}>{gear.emoji}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: RARITY_COLORS[gear.rarity], overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {gear.name}
+                      </div>
+                      <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#666" }}>
+                        {RARITY_LABELS[gear.rarity]} · <span style={{ color: TIER_COLORS[gear.tier] }}>{TIER_LABELS[gear.tier]}</span>
+                        {ENHANCE_XP_THRESHOLDS[gear.tier] === undefined && <span style={{ color: "#ffcc44" }}> ✦ MAX</span>}
+                      </div>
+                    </div>
+                    <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#555", textAlign: "right" }}>
+                      {gear.enhancementXp > 0 && <div style={{ color: "#aa88ff" }}>{gear.enhancementXp} XP</div>}
+                      <div style={{ fontSize: 11, color: "#00ffcc" }}>equipped</div>
+                    </div>
+                  </div>
+                ))}
+                {state.stash.length > 0 && (
+                  <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#555", margin: "6px 0 4px", letterSpacing: 1 }}>📦 STASH</div>
+                )}
+              </>
+            )}
+            {/* STASH section */}
+            {state.stash.length === 0 && equippedList.length === 0 ? (
+              <div style={s.muted}>No gear available</div>
+            ) : (
+              <>{state.stash.map((gear) => (
                 <div
                   key={gear.id}
                   onClick={() => { setTargetId(gear.id); setSacrificeIds(new Set()); setMatQty({}); }}
@@ -286,9 +328,9 @@ export default function EnhanceTab({ state, actions }: Props) {
                     {gear.enhancementXp > 0 && <div style={{ color: "#aa88ff" }}>{gear.enhancementXp} XP</div>}
                   </div>
                 </div>
-              ))}
-            </div>
-          )
+              ))}</>)
+            }
+          </div>
         )}
       </div>
 
