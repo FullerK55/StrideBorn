@@ -137,15 +137,15 @@ export const TIER_COLORS: Record<GearTier, string> = {
 
 // Enhancement XP thresholds per tier upgrade (cost to go from tier N to N+1)
 export const ENHANCE_XP_THRESHOLDS: Partial<Record<GearTier, number>> = {
-  iron:       100,
-  steel:      250,
-  shadow:     600,
-  void:       1500,
-  celestial:  3500,
-  obsidian:   8000,
-  runic:      18000,
-  spectral:   40000,
-  primordial: 90000,
+  iron:       2000,
+  steel:      5000,
+  shadow:     12000,
+  void:       30000,
+  celestial:  70000,
+  obsidian:   160000,
+  runic:      360000,
+  spectral:   800000,
+  primordial: 1800000,
   // eternal is max tier — no upgrade
 };
 
