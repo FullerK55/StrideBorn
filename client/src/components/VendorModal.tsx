@@ -19,6 +19,7 @@ import {
   VENDOR_MERGE_COST_PER_UNIT,
   ENH_XP_MERGE_COST_PER_LEVEL,
   ENH_XP_MERGE_CAP,
+  statRange,
 } from "@/hooks/useGameState";
 
 interface Props {
@@ -306,12 +307,27 @@ export default function VendorModal({ state, actions }: Props) {
                       <div style={{ ...s.muted, marginBottom: 6 }}>Select stats to reroll:</div>
                       {rerollGear.stats.map((st, i) => {
                         const checked = rerollStatIndices.has(i);
+                        const range = statRange(rerollGear.tier, rerollGear.rarity);
+                        const pct = range.max > range.min ? Math.round(((st.value - range.min) / (range.max - range.min)) * 100) : 100;
+                        const rollColor = pct >= 80 ? "#44ff88" : pct >= 50 ? "#ffcc44" : "#ff6644";
+                        const rerollEntry = state.lastRerollResult?.find((r) => r.gearId === rerollGear.id && r.statIdx === i);
                         return (
-                          <div key={i} onClick={() => toggleRerollStat(i)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: checked ? "rgba(255,170,0,0.08)" : "rgba(0,0,0,0.3)", border: `1px solid ${checked ? "#ffaa00" : "#2a2a2a"}`, borderRadius: 3, marginBottom: 4, cursor: "pointer" }}>
-                            <div style={{ width: 14, height: 14, border: `1px solid ${checked ? "#ffaa00" : "#555"}`, background: checked ? "#ffaa00" : "transparent", borderRadius: 2, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <div key={i} onClick={() => toggleRerollStat(i)} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "7px 10px", background: checked ? "rgba(255,170,0,0.08)" : "rgba(0,0,0,0.3)", border: `1px solid ${checked ? "#ffaa00" : "#2a2a2a"}`, borderRadius: 3, marginBottom: 4, cursor: "pointer" }}>
+                            <div style={{ width: 14, height: 14, border: `1px solid ${checked ? "#ffaa00" : "#555"}`, background: checked ? "#ffaa00" : "transparent", borderRadius: 2, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", marginTop: 2 }}>
                               {checked && <span style={{ color: "#000", fontSize: 10, lineHeight: 1 }}>✓</span>}
                             </div>
-                            <div style={{ fontFamily: "'VT323', monospace", fontSize: 15, color: checked ? "#88aaff" : "#aaa" }}>+{st.value} {st.stat}</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                <span style={{ fontFamily: "'VT323', monospace", fontSize: 15, color: checked ? "#88aaff" : "#ccc" }}>+{st.value} {st.stat}</span>
+                                <span style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: rollColor, border: `1px solid ${rollColor}`, padding: "1px 4px", borderRadius: 2 }}>{pct}%</span>
+                                {rerollEntry && (
+                                  <span style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: rerollEntry.newValue > rerollEntry.oldValue ? "#44ff88" : rerollEntry.newValue < rerollEntry.oldValue ? "#ff6644" : "#888" }}>
+                                    {rerollEntry.newValue > rerollEntry.oldValue ? "↑" : rerollEntry.newValue < rerollEntry.oldValue ? "↓" : "↔"} was +{rerollEntry.oldValue}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontFamily: "'VT323', monospace", fontSize: 11, color: "#555", marginTop: 1 }}>range: {range.min}–{range.max}</div>
+                            </div>
                           </div>
                         );
                       })}

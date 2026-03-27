@@ -350,6 +350,49 @@ export interface ActiveFence {
   floor: number;
 }
 
+// ---- Book / Enchanting system ----
+// Books carry a single enchantment (stat) at a minimum base value.
+// They can be placed on any gear piece at base, adding the stat at its floor value.
+// Books start weak — must be rerolled on the gear to become useful.
+export interface BookItem {
+  id: string;
+  isBook: true;
+  enchantment: string | null;  // null = blank book
+  // Base value when placed on gear (floor roll: tier=iron, rarity=scrap)
+  baseValue: number;
+  sourceSlot: GearSlot | null; // slot the enchantment was stripped from (null if blank)
+}
+
+// Bookshelf at base — stores books outside bag/stash
+export const BOOKSHELF_SIZE = 20;
+
+// Mega boss reward choices
+export type MegaBossReward = "enchanting_table" | "placeholder_a" | "placeholder_b";
+export interface ActiveMegaBoss {
+  floor: number;
+  rewardChosen: boolean;
+}
+export interface ActiveEnchantingTable {
+  floor: number;
+}
+
+// Stat range helper — returns { min, max } for a stat on a given tier+rarity
+export function statRange(tier: GearTier, rarity: GearRarity): { min: number; max: number } {
+  const tierMult: Record<GearTier, number> = { iron: 1, steel: 1.5, shadow: 2.5, void: 4, celestial: 7, obsidian: 11, runic: 17, spectral: 26, primordial: 40, eternal: 60 };
+  const rarityMult: Record<GearRarity, number> = { scrap: 0.5, common: 1, uncommon: 1.3, rare: 1.8, epic: 2.5, legendary: 3.5, mythic: 5 };
+  const tm = tierMult[tier];
+  const rm = rarityMult[rarity];
+  return {
+    min: Math.floor(5 * tm * rm),
+    max: Math.floor(20 * tm * rm),
+  };
+}
+
+// Book base value: iron/scrap floor
+export function bookBaseValue(): number {
+  return Math.floor(5 * 1 * 0.5); // iron tierMult=1, scrap rarityMult=0.5
+}
+
 // Vendor types
 export interface VendorItem {
   id: string;
@@ -427,6 +470,10 @@ export interface GameState {
   activeVendor: ActiveVendor | null;
   activeAnvil: ActiveAnvil | null;
   activeFence: ActiveFence | null;
+  activeMegaBoss: ActiveMegaBoss | null;
+  activeEnchantingTable: ActiveEnchantingTable | null;
+  bookshelf: BookItem[];
+  lastRerollResult: { gearId: string; statIdx: number; oldValue: number; newValue: number }[] | null;
 }
 
 export interface OfflineSummary {
@@ -468,6 +515,13 @@ export interface GameActions {
   vendorMergeEnhXp: () => void;
   fenceSellGear: (gearId: string) => void;
   dismissFence: () => void;
+  chooseMegaBossReward: (reward: MegaBossReward) => void;
+  dismissMegaBoss: () => void;
+  dismissEnchantingTable: () => void;
+  enchantingTableStrip: (gearId: string, statIdx: number) => void;
+  placeBookOnGear: (bookId: string, gearId: string) => void;
+  dropBookFromShelf: (bookId: string) => void;
+  clearRerollResult: () => void;
   log: LogEntry[];
   notification: string | null;
   lootPopups: LootPopup[];
@@ -910,6 +964,10 @@ function buildInitialState(
     activeVendor: null,
     activeAnvil: null,
     activeFence: null,
+    activeMegaBoss: null,
+    activeEnchantingTable: null,
+    bookshelf: (profile as Profile & { bookshelf?: BookItem[] }).bookshelf ?? [],
+    lastRerollResult: null,
   };
 }
 
@@ -1174,10 +1232,46 @@ export function useGameState(
         return added > 0 ? { ...prev, bag: currentBag } : prev;
       });
 
-      // Boss floor
+      // Boss floor logic
       if (floor % 10 === 0) {
-        showNotif(`💀 BOSS FLOOR ${floor}!`);
-        addLog(`💀 Boss encountered on floor ${floor}!`, "log-red");
+        const isMegaBoss = floor % 100 === 0;
+        if (isMegaBoss) {
+          showNotif(`☠️ MEGA BOSS FLOOR ${floor}!`);
+          addLog(`☠️ MEGA BOSS on floor ${floor}! Choose your reward!`, "log-red");
+          stopWalkInterval();
+          setState((prev) => ({
+            ...prev,
+            activeMegaBoss: { floor, rewardChosen: false },
+          }));
+        } else {
+          showNotif(`💀 BOSS FLOOR ${floor}!`);
+          addLog(`💀 Mini boss on floor ${floor}!`, "log-red");
+          // 2% chance to drop a blank book (added to bag)
+          if (Math.random() < 0.02) {
+            setState((prev) => {
+              const emptySlot = prev.bag.findIndex((s) => s === null);
+              if (emptySlot === -1) {
+                addLog("📖 Book dropped but bag is full!", "log-muted");
+                return prev;
+              }
+              // 20% chance the book is pre-enchanted with a random stat
+              const preEnchanted = Math.random() < 0.2;
+              const book: BookItem = {
+                id: `book_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                isBook: true,
+                enchantment: preEnchanted
+                  ? ALL_STATS[Math.floor(Math.random() * ALL_STATS.length)]
+                  : null,
+                baseValue: bookBaseValue(),
+                sourceSlot: null,
+              };
+              const newBag = [...prev.bag];
+              newBag[emptySlot] = book as unknown as BagItem;
+              addLog(preEnchanted ? `📖 Pre-enchanted book dropped! (${book.enchantment})` : "📖 Blank book dropped!", "log-gem");
+              return { ...prev, bag: newBag };
+            });
+          }
+        }
       }
 
       // Gold drop per floor
@@ -1620,8 +1714,15 @@ export function useGameState(
       } else {
         newStash = prev.stash.map((g) => g.id === gearId ? updatedGear : g);
       }
+      // Build reroll result for UI comparison
+      const rerollResult = statIndices.map((i) => ({
+        gearId,
+        statIdx: i,
+        oldValue: gear.stats[i].value,
+        newValue: newStats[i].value,
+      }));
       addLog(`🎲 Vendor rerolled ${statIndices.length} stat(s) on ${gear.name} (-${cost}g)`, "log-gold");
-      return { ...prev, gold: prev.gold - cost, bag: newBag, stash: newStash, activeVendor: { ...prev.activeVendor, rerollUsed: true } };
+      return { ...prev, gold: prev.gold - cost, bag: newBag, stash: newStash, activeVendor: { ...prev.activeVendor, rerollUsed: true }, lastRerollResult: rerollResult };
     });
   }, [addLog, showNotif]);
 
@@ -1901,6 +2002,101 @@ export function useGameState(
     addLog("⚔️ Anvil dismissed. Continuing...", "log-muted");
   }, [addLog, startWalkInterval]);
 
+  // ---- Mega Boss / Enchanting Table / Book actions ----
+  const chooseMegaBossReward = useCallback((reward: MegaBossReward) => {
+    setState((prev) => {
+      if (!prev.activeMegaBoss || prev.activeMegaBoss.rewardChosen) return prev;
+      if (reward === "enchanting_table") {
+        addLog(`🔮 Enchanting Table unlocked on floor ${prev.activeMegaBoss.floor}!`, "log-gem");
+        return {
+          ...prev,
+          activeMegaBoss: { ...prev.activeMegaBoss, rewardChosen: true },
+          activeEnchantingTable: { floor: prev.activeMegaBoss.floor },
+        };
+      }
+      // placeholder rewards
+      addLog(`🏆 Reward chosen: ${reward}`, "log-gold");
+      return { ...prev, activeMegaBoss: { ...prev.activeMegaBoss, rewardChosen: true } };
+    });
+  }, [addLog]);
+
+  const dismissMegaBoss = useCallback(() => {
+    setState((prev) => ({ ...prev, activeMegaBoss: null }));
+    startWalkInterval();
+    addLog("💀 Mega boss dismissed. Continuing...", "log-muted");
+  }, [addLog, startWalkInterval]);
+
+  const dismissEnchantingTable = useCallback(() => {
+    setState((prev) => ({ ...prev, activeEnchantingTable: null }));
+    startWalkInterval();
+    addLog("🔮 Enchanting Table closed.", "log-muted");
+  }, [addLog, startWalkInterval]);
+
+  // Strip a stat from a stash gear piece and write it to a blank book on the bookshelf
+  const ENCHANTING_STRIP_COST = 500;
+  const enchantingTableStrip = useCallback((gearId: string, statIdx: number) => {
+    setState((prev) => {
+      if (!prev.activeEnchantingTable) { showNotif("NO ENCHANTING TABLE ACTIVE!"); return prev; }
+      if (prev.gold < ENCHANTING_STRIP_COST) { showNotif(`NEED ${ENCHANTING_STRIP_COST} GOLD!`); return prev; }
+      const gear = prev.stash.find((g) => g.id === gearId);
+      if (!gear) { showNotif("ITEM NOT IN STASH!"); return prev; }
+      if (statIdx < 0 || statIdx >= gear.stats.length) { showNotif("INVALID STAT!"); return prev; }
+      if (prev.bookshelf.length >= BOOKSHELF_SIZE) { showNotif("BOOKSHELF FULL! (20 max)"); return prev; }
+      const strippedStat = gear.stats[statIdx];
+      // Remove stat from gear
+      const newStats = gear.stats.filter((_, i) => i !== statIdx);
+      const newStash = prev.stash.map((g) => g.id === gearId ? { ...g, stats: newStats } : g);
+      // Create book
+      const book: BookItem = {
+        id: `book_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        isBook: true,
+        enchantment: strippedStat.stat,
+        baseValue: bookBaseValue(),
+        sourceSlot: gear.slot,
+      };
+      addLog(`📖 Stripped "${strippedStat.stat}" from ${gear.name} into a book (-${ENCHANTING_STRIP_COST}g)`, "log-gem");
+      return {
+        ...prev,
+        gold: prev.gold - ENCHANTING_STRIP_COST,
+        stash: newStash,
+        bookshelf: [...prev.bookshelf, book],
+      };
+    });
+  }, [addLog, showNotif]);
+
+  // Place a book's enchantment onto any stash gear piece
+  const placeBookOnGear = useCallback((bookId: string, gearId: string) => {
+    setState((prev) => {
+      if (prev.isInDungeon) { showNotif("RETURN TO BASE TO USE BOOKS!"); return prev; }
+      const book = prev.bookshelf.find((b) => b.id === bookId);
+      if (!book) { showNotif("BOOK NOT FOUND!"); return prev; }
+      if (!book.enchantment) { showNotif("BLANK BOOK — USE ENCHANTING TABLE FIRST!"); return prev; }
+      const gear = prev.stash.find((g) => g.id === gearId);
+      if (!gear) { showNotif("ITEM NOT IN STASH!"); return prev; }
+      // Add the enchantment stat at base value
+      const newStat = { stat: book.enchantment, value: book.baseValue };
+      const newStash = prev.stash.map((g) =>
+        g.id === gearId ? { ...g, stats: [...g.stats, newStat] } : g
+      );
+      // Consume the book
+      const newShelf = prev.bookshelf.filter((b) => b.id !== bookId);
+      addLog(`📖 Placed "${book.enchantment}" onto ${gear.name} (base value: ${book.baseValue})`, "log-gem");
+      return { ...prev, stash: newStash, bookshelf: newShelf };
+    });
+  }, [addLog, showNotif]);
+
+  const dropBookFromShelf = useCallback((bookId: string) => {
+    setState((prev) => ({
+      ...prev,
+      bookshelf: prev.bookshelf.filter((b) => b.id !== bookId),
+    }));
+    addLog("📖 Book discarded.", "log-muted");
+  }, [addLog]);
+
+  const clearRerollResult = useCallback(() => {
+    setState((prev) => ({ ...prev, lastRerollResult: null }));
+  }, []);
+
   const saveNow = useCallback(() => {
     const s = stateRef.current;
     const offlineData = s.isInDungeon && !s.isReturning
@@ -1920,6 +2116,7 @@ export function useGameState(
       lives: s.lives,
       gold: s.gold,
       quests: s.quests,
+      bookshelf: s.bookshelf,
       ...offlineData,
     });
     setLastSaved(Date.now());
@@ -1964,6 +2161,13 @@ export function useGameState(
       vendorMergeEnhXp,
       fenceSellGear,
       dismissFence,
+      chooseMegaBossReward,
+      dismissMegaBoss,
+      dismissEnchantingTable,
+      enchantingTableStrip,
+      placeBookOnGear,
+      dropBookFromShelf,
+      clearRerollResult,
       log,
       notification,
       lootPopups,

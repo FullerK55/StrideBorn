@@ -27,6 +27,7 @@ export interface Profile {
   lives: number;
   gold: number;
   quests: unknown; // Quest[]
+  bookshelf: unknown[]; // BookItem[]
   // Offline progress tracking
   offlineTimestamp: number | null;
   offlineFloor: number | null;
@@ -54,6 +55,7 @@ function loadProfiles(): Profile[] {
       bagSize: (p.bagSize as number | undefined) ?? 5,
       gold: (p.gold as number | undefined) ?? 0,
       quests: Array.isArray(p.quests) ? p.quests : [],
+      bookshelf: Array.isArray(p.bookshelf) ? p.bookshelf : [],
       stash: Array.isArray(p.stash) ? p.stash : [],
       runs: p.runs ?? 0,
       lives: p.lives ?? 1,
@@ -98,6 +100,7 @@ function createProfile(name: string, avatar: string): Profile {
     lives: 1,
     gold: 0,
     quests: [],
+    bookshelf: [],
     offlineTimestamp: null,
     offlineFloor: null,
     offlineDungeon: null,

@@ -19,8 +19,11 @@ import FenceModal from "@/components/FenceModal";
 import ShopTab from "@/components/ShopTab";
 import QuestsTab from "@/components/QuestsTab";
 import EnhanceTab from "@/components/EnhanceTab";
+import BookshelfTab from "@/components/BookshelfTab";
+import MegaBossModal from "@/components/MegaBossModal";
+import EnchantingTableModal from "@/components/EnchantingTableModal";
 
-type Tab = "bag" | "stash" | "gear" | "materials" | "craft" | "enhance" | "shop" | "quests" | "dungeons" | "log";
+type Tab = "bag" | "stash" | "gear" | "materials" | "craft" | "enhance" | "shop" | "bookshelf" | "quests" | "dungeons" | "log";
 
 const TABS: { id: Tab; label: string; baseOnly?: boolean }[] = [
   { id: "bag", label: "BAG" },
@@ -30,6 +33,7 @@ const TABS: { id: Tab; label: string; baseOnly?: boolean }[] = [
   { id: "craft", label: "CRAFT", baseOnly: true },
   { id: "enhance", label: "ENHANCE", baseOnly: true },
   { id: "shop", label: "SHOP", baseOnly: true },
+  { id: "bookshelf", label: "BOOKS", baseOnly: true },
   { id: "quests", label: "QUESTS" },
   { id: "dungeons", label: "MAP" },
   { id: "log", label: "LOG" },
@@ -119,6 +123,8 @@ export default function Home() {
         <VendorModal state={state} actions={actions} />
         {state.activeAnvil && <AnvilModal state={state} actions={actions} />}
         {state.activeFence && <FenceModal state={state} actions={actions} />}
+        {state.activeMegaBoss && <MegaBossModal state={state} actions={actions} />}
+        {state.activeEnchantingTable && <EnchantingTableModal state={state} actions={actions} />}
 
         {/* OFFLINE SUMMARY MODAL */}
         {actions.offlineSummary && (
@@ -524,7 +530,10 @@ export default function Home() {
           {activeTab === "shop" && (
             <ShopTab state={state} actions={actions} />
           )}
-
+          {/* BOOKSHELF TAB */}
+          {activeTab === "bookshelf" && (
+            <BookshelfTab state={state} actions={actions} />
+          )}
           {/* QUESTS TAB */}
           {activeTab === "quests" && (
             <QuestsTab state={state} actions={actions} />
