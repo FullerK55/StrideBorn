@@ -2,6 +2,7 @@
 // Stride Born — Profile Context
 // Design: Up to 5 local profiles, each with independent save data
 // Auto-saves active profile every 5 seconds
+// Offline progress: each profile tracks when it went offline while in a dungeon
 // ============================================================
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
@@ -19,6 +20,10 @@ export interface Profile {
   stash: unknown[];
   runs: number;
   lives: number;
+  // Offline progress tracking
+  offlineTimestamp: number | null;  // when the profile went offline while in dungeon
+  offlineFloor: number | null;      // floor they were on when they went offline
+  offlineDungeon: string | null;    // dungeon they were in
 }
 
 const PROFILES_KEY = "strideborn_profiles_v1";
@@ -31,7 +36,14 @@ function loadProfiles(): Profile[] {
   try {
     const raw = localStorage.getItem(PROFILES_KEY);
     if (!raw) return [];
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    // Migrate old profiles that don't have offline fields
+    return parsed.map((p: Profile) => ({
+      ...p,
+      offlineTimestamp: p.offlineTimestamp ?? null,
+      offlineFloor: p.offlineFloor ?? null,
+      offlineDungeon: p.offlineDungeon ?? null,
+    }));
   } catch {
     return [];
   }
@@ -62,6 +74,9 @@ function createProfile(name: string, avatar: string): Profile {
     stash: [],
     runs: 0,
     lives: 1,
+    offlineTimestamp: null,
+    offlineFloor: null,
+    offlineDungeon: null,
   };
 }
 

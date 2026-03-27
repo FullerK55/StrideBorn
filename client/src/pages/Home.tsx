@@ -8,6 +8,7 @@ import { useGameState, DUNGEONS, RARITY_COLORS } from "@/hooks/useGameState";
 import { useProfile } from "@/contexts/ProfileContext";
 import DungeonScene from "@/components/DungeonScene";
 import SettingsOverlay from "@/components/SettingsOverlay";
+import OfflineSummary from "@/components/OfflineSummary";
 
 type Tab = "bag" | "stash" | "gear" | "dungeons" | "log";
 
@@ -91,6 +92,14 @@ export default function Home() {
 
         {/* SETTINGS OVERLAY */}
         {showSettings && <SettingsOverlay onClose={() => setShowSettings(false)} />}
+
+        {/* OFFLINE SUMMARY MODAL */}
+        {actions.offlineSummary && (
+          <OfflineSummary
+            summary={actions.offlineSummary}
+            onClose={actions.clearOfflineSummary}
+          />
+        )}
 
         {/* HEADER */}
         <div style={{ textAlign: "center", padding: "12px 0 4px", position: "relative" }}>
