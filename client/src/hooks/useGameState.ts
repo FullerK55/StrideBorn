@@ -565,9 +565,16 @@ function calculateOfflineProgress(profile: Profile): {
   }
 
   // Fill bag only — bag full = loot lost
-  const newBag: (BagItem | null)[] = Array(BAG_SIZE).fill(null);
+  // Use the profile's saved bag size (includes shop purchases + gear bonuses at time of save)
+  const savedBagSize = (profile.bagSize as number | undefined) ?? BAG_SIZE;
+  const existingBag: (BagItem | null)[] = Array.isArray(profile.bag)
+    ? (profile.bag as (BagItem | null)[])
+    : Array(savedBagSize).fill(null);
+  const newBag: (BagItem | null)[] = existingBag.length < savedBagSize
+    ? [...existingBag, ...Array(savedBagSize - existingBag.length).fill(null)]
+    : [...existingBag];
   for (const item of lootFound) {
-    const emptySlot = newBag.findIndex((s) => s === null);
+    const emptySlot = newBag.findIndex((s, idx) => s === null && idx < savedBagSize);
     if (emptySlot !== -1) {
       newBag[emptySlot] = item;
     }
@@ -970,12 +977,16 @@ export function useGameState(
       const materialYield = getEquippedStatTotal(stateRef.current.equippedGear, 'Material Yield');
       const drops = generateFloorDrops(floor, lootFind, itemRarity, materialYield);
       setState((prev) => {
-        const newBag = [...prev.bag];
+        // Use prev.bagSize (dynamic — includes gear bonuses + shop purchases)
+        // Ensure the bag array is at least bagSize long before filling
+        const currentBag = prev.bag.length < prev.bagSize
+          ? [...prev.bag, ...Array(prev.bagSize - prev.bag.length).fill(null)]
+          : [...prev.bag];
         let added = 0;
         for (const drop of drops) {
-          const emptySlot = newBag.findIndex((s) => s === null);
+          const emptySlot = currentBag.findIndex((s, idx) => s === null && idx < prev.bagSize);
           if (emptySlot !== -1) {
-            newBag[emptySlot] = drop;
+            currentBag[emptySlot] = drop;
             added++;
             if ('isMaterial' in drop) {
               const matInfo = MATERIAL_INFO[(drop as MaterialItem).type];
@@ -994,7 +1005,7 @@ export function useGameState(
             break;
           }
         }
-        return added > 0 ? { ...prev, bag: newBag } : prev;
+        return added > 0 ? { ...prev, bag: currentBag } : prev;
       });
 
       // Boss floor

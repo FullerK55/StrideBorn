@@ -18,6 +18,8 @@ export interface Profile {
   deepestFloor: number;
   currentDungeon: string;
   stash: unknown[];
+  bag: unknown[];       // (BagItem | null)[] — persisted so offline calc can use it
+  bagSize: number;      // persisted bag size including shop purchases
   equippedGear: unknown; // Record<GearSlot, GearItem | null>
   materials: unknown;   // Materials
   runes: unknown;       // RuneInventory
@@ -78,6 +80,8 @@ function createProfile(name: string, avatar: string): Profile {
     deepestFloor: 0,
     currentDungeon: "crystal",
     stash: [],
+    bag: [],
+    bagSize: 5,
     equippedGear: { helmet: null, gloves: null, chest: null, pants: null, boots: null, backpack: null, weapon: null, ring: null, amulet: null },
     materials: { crude: 0, refined: 0, tempered: 0, voidmat: 0, celestialmat: 0 },
     runes: {},
