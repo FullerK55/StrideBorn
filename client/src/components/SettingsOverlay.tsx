@@ -6,12 +6,28 @@
 
 import { useState } from "react";
 import { useProfile } from "@/contexts/ProfileContext";
-import type { GameState, GearRarity, AutoInvestConfig } from "@/hooks/useGameState";
-export type { AutoInvestConfig };
+import type { GameState, GearRarity, AutoInvestConfig, LeaveAloneAdvancedConfig } from "@/hooks/useGameState";
+export type { AutoInvestConfig, LeaveAloneAdvancedConfig };
 
 const NERD_MODE_KEY = "strideborn_nerd_mode";
 const LEAVE_ALONE_KEY = "strideborn_leave_alone";
+const LEAVE_ALONE_ADVANCED_KEY = "strideborn_leave_alone_advanced";
 const AUTO_INVEST_KEY = "strideborn_auto_invest";
+
+const DEFAULT_LEAVE_ALONE_ADVANCED: LeaveAloneAdvancedConfig = {
+  showMegaBossReward: false,
+};
+
+export function loadLeaveAloneAdvanced(): LeaveAloneAdvancedConfig {
+  try {
+    const raw = localStorage.getItem(LEAVE_ALONE_ADVANCED_KEY);
+    if (!raw) return { ...DEFAULT_LEAVE_ALONE_ADVANCED };
+    return { ...DEFAULT_LEAVE_ALONE_ADVANCED, ...JSON.parse(raw) };
+  } catch { return { ...DEFAULT_LEAVE_ALONE_ADVANCED }; }
+}
+function saveLeaveAloneAdvanced(v: LeaveAloneAdvancedConfig) {
+  localStorage.setItem(LEAVE_ALONE_ADVANCED_KEY, JSON.stringify(v));
+}
 
 export function loadLeaveAloneMode(): boolean {
   return localStorage.getItem(LEAVE_ALONE_KEY) === "true";
@@ -32,11 +48,13 @@ function saveNerdMode(v: boolean) {
 const DEFAULT_AUTO_INVEST: AutoInvestConfig = {
   enabled: false,
   buyBooks: true,
+  buyBookVendor: true,
   buyGearMinRarity: "rare",
   buyGearMaxPrice: 500,
   buyMaterials: false,
   goldReserve: 2000,
   anvilBreakMaxRarity: "uncommon",
+  anvilBreakFromStash: false,
 };
 
 export function loadAutoInvest(): AutoInvestConfig {
@@ -73,6 +91,8 @@ interface SettingsOverlayProps {
   onNerdModeChange: (v: boolean) => void;
   leaveAloneMode: boolean;
   onLeaveAloneModeChange: (v: boolean) => void;
+  leaveAloneAdvanced: LeaveAloneAdvancedConfig;
+  onLeaveAloneAdvancedChange: (cfg: LeaveAloneAdvancedConfig) => void;
   autoInvest: AutoInvestConfig;
   onAutoInvestChange: (cfg: AutoInvestConfig) => void;
 }
@@ -156,6 +176,7 @@ function RarityPicker({ label, value, allowNone, onChange }: { label: string; va
 export default function SettingsOverlay({
   onClose, onSaveNow, state, nerdMode, onNerdModeChange,
   leaveAloneMode, onLeaveAloneModeChange,
+  leaveAloneAdvanced, onLeaveAloneAdvancedChange,
   autoInvest, onAutoInvestChange,
 }: SettingsOverlayProps) {
   const { activeProfile, setSwitchingProfile } = useProfile();
@@ -182,6 +203,12 @@ export default function SettingsOverlay({
     const next = { ...autoInvest, ...patch };
     saveAutoInvest(next);
     onAutoInvestChange(next);
+  }
+
+  function updateLAA(patch: Partial<LeaveAloneAdvancedConfig>) {
+    const next = { ...leaveAloneAdvanced, ...patch };
+    saveLeaveAloneAdvanced(next);
+    onLeaveAloneAdvancedChange(next);
   }
 
   const bookDropPct = state ? (2 + (state.bookDropPity ?? 0)) : null;
@@ -360,12 +387,20 @@ export default function SettingsOverlay({
               {/* Divider */}
               <div className="pixel-font" style={{ fontSize: 7, color: "var(--game-muted)", letterSpacing: 2, marginTop: 4 }}>VENDOR RULES</div>
 
-              {/* Buy books */}
+              {/* Buy books from regular vendor */}
               <ToggleRow
-                label="📚 Always Buy Books"
-                note="Buys any book from vendor if gold reserve allows"
+                label="📚 Always Buy Books (Vendor)"
+                note="Buys any book from regular vendor if gold reserve allows"
                 active={autoInvest.buyBooks}
                 onClick={() => updateAI({ buyBooks: !autoInvest.buyBooks })}
+              />
+
+              {/* Buy books from wandering scholar */}
+              <ToggleRow
+                label="📖 Buy from Wandering Scholar"
+                note="Auto-buys the book when scholar spawns after floor 200"
+                active={autoInvest.buyBookVendor}
+                onClick={() => updateAI({ buyBookVendor: !autoInvest.buyBookVendor })}
               />
 
               {/* Buy gear */}
@@ -404,13 +439,46 @@ export default function SettingsOverlay({
                 onChange={(v) => updateAI({ anvilBreakMaxRarity: v })}
               />
               {autoInvest.anvilBreakMaxRarity !== null && (
-                <div style={{ fontSize: 12, color: "var(--game-muted)", padding: "4px 12px", background: "rgba(255,100,0,0.06)", border: "1px solid rgba(255,100,0,0.2)", borderRadius: 4 }}>
-                  ⚠️ Gear at or below <strong style={{ color: "var(--game-text)" }}>{autoInvest.anvilBreakMaxRarity}</strong> in your bag will be automatically broken down into Enhancement XP when an anvil spawns.
-                </div>
+                <>
+                  <ToggleRow
+                    label="📦 Also Break Stash Gear"
+                    note="Extends auto-break to stash (not just bag) — use with caution!"
+                    active={autoInvest.anvilBreakFromStash}
+                    onClick={() => updateAI({ anvilBreakFromStash: !autoInvest.anvilBreakFromStash })}
+                  />
+                  <div style={{ fontSize: 12, color: "var(--game-muted)", padding: "4px 12px", background: "rgba(255,100,0,0.06)", border: "1px solid rgba(255,100,0,0.2)", borderRadius: 4 }}>
+                    ⚠️ Gear at or below <strong style={{ color: "var(--game-text)" }}>{autoInvest.anvilBreakMaxRarity}</strong>{autoInvest.anvilBreakFromStash ? " in your bag AND stash" : " in your bag"} will be automatically broken down into Enhancement XP when an anvil spawns.
+                  </div>
+                </>
               )}
             </div>
           )}
         </div>
+
+        <div style={{ height: 1, background: "var(--game-border)", margin: "0 16px" }} />
+
+        {/* ADVANCED LEAVE ME ALONE */}
+        {leaveAloneMode && (
+          <div style={{ padding: "14px 16px" }}>
+            {sectionHeader("🤫 ADVANCED AFK SETTINGS")}
+            <div style={{ fontSize: 12, color: "var(--game-muted)", marginBottom: 10 }}>
+              Fine-tune what interrupts you while Leave Me Alone Mode is active.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <ToggleRow
+                label="☠️ Show Mega Boss Reward"
+                note="Pauses run and shows reward popup on wave-100 boss floors so you can pick Portal / Enchanting Table"
+                active={leaveAloneAdvanced.showMegaBossReward}
+                onClick={() => updateLAA({ showMegaBossReward: !leaveAloneAdvanced.showMegaBossReward })}
+              />
+              {leaveAloneAdvanced.showMegaBossReward && (
+                <div style={{ fontSize: 12, color: "var(--game-muted)", padding: "4px 12px", background: "rgba(255,170,0,0.06)", border: "1px solid rgba(255,170,0,0.2)", borderRadius: 4 }}>
+                  ✅ The run will pause at every floor 100, 200, 300… so you can choose Portal (return to base) or Enchanting Table.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Version */}
         <div style={{ textAlign: "center", padding: "0 16px 4px", fontSize: 12, color: "rgba(100,100,150,0.5)", fontFamily: "'Press Start 2P', monospace" }}>

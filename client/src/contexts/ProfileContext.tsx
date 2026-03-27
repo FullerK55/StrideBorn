@@ -29,6 +29,7 @@ export interface Profile {
   quests: unknown; // Quest[]
   bookshelf: unknown[]; // BookItem[]
   bookDropPity: number;  // pity counter for mini boss book drops
+  bookVendorPity: number; // floors cleared after floor 200 without book vendor spawning
   enhancementXpPool: number; // global pool of Enhancement XP from Anvil
   // Offline progress tracking
   offlineTimestamp: number | null;
@@ -59,6 +60,7 @@ function loadProfiles(): Profile[] {
       quests: Array.isArray(p.quests) ? p.quests : [],
       bookshelf: Array.isArray(p.bookshelf) ? p.bookshelf : [],
       bookDropPity: typeof p.bookDropPity === 'number' ? p.bookDropPity : 0,
+      bookVendorPity: typeof p.bookVendorPity === 'number' ? p.bookVendorPity : 0,
       enhancementXpPool: typeof (p as Profile & { enhancementXpPool?: number }).enhancementXpPool === 'number' ? (p as Profile & { enhancementXpPool?: number }).enhancementXpPool! : 0,
       stash: Array.isArray(p.stash) ? p.stash : [],
       runs: p.runs ?? 0,
@@ -106,6 +108,7 @@ function createProfile(name: string, avatar: string): Profile {
     quests: [],
     bookshelf: [],
     bookDropPity: 0,
+    bookVendorPity: 0,
     enhancementXpPool: 0,
     offlineTimestamp: null,
     offlineFloor: null,

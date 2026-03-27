@@ -11,11 +11,18 @@ import type { Profile } from "@/contexts/ProfileContext";
 export interface AutoInvestConfig {
   enabled: boolean;
   buyBooks: boolean;
+  buyBookVendor: boolean;          // auto-buy from the post-200 book vendor
   buyGearMinRarity: GearRarity | null;
   buyGearMaxPrice: number;
   buyMaterials: boolean;
   goldReserve: number;
   anvilBreakMaxRarity: GearRarity | null;
+  anvilBreakFromStash: boolean;    // also break stash gear (not just bag)
+}
+
+// ---- Advanced Leave Me Alone config ----
+export interface LeaveAloneAdvancedConfig {
+  showMegaBossReward: boolean; // if true, pauses and shows reward popup; if false, skips silently
 }
 
 // ============================================================
@@ -486,6 +493,7 @@ export interface GameState {
   portal: { floor: number; usedToBase: boolean; usedReturn: boolean } | null;
   lastRerollResult: { gearId: string; statIdx: number; oldValue: number; newValue: number }[] | null;
   bookDropPity: number; // consecutive mini boss misses, resets to 0 on drop
+  bookVendorPity: number; // floors cleared after floor 200 without book vendor spawning
   enhancementXpPool: number; // global pool of Enhancement XP from Anvil breakdowns
 }
 
@@ -985,6 +993,7 @@ function buildInitialState(
     portal: null,
     lastRerollResult: null,
     bookDropPity: profile.bookDropPity ?? 0,
+    bookVendorPity: profile.bookVendorPity ?? 0,
     enhancementXpPool: (profile as Profile & { enhancementXpPool?: number }).enhancementXpPool ?? 0,
   };
 }
@@ -1014,12 +1023,15 @@ export function useGameState(
   profile: Profile,
   onSave: (data: Partial<Profile>) => void,
   leaveAloneMode = false,
-  autoInvest?: AutoInvestConfig
+  autoInvest?: AutoInvestConfig,
+  leaveAloneAdvanced?: LeaveAloneAdvancedConfig
 ): [GameState, GameActions] {
   const leaveAloneModeRef = useRef(leaveAloneMode);
   leaveAloneModeRef.current = leaveAloneMode;
   const autoInvestRef = useRef(autoInvest);
   autoInvestRef.current = autoInvest;
+  const leaveAloneAdvancedRef = useRef(leaveAloneAdvanced);
+  leaveAloneAdvancedRef.current = leaveAloneAdvanced;
   const offlineResult = useRef<ReturnType<typeof calculateOfflineProgress>>(null);
   const offlineSummaryRef = useRef<OfflineSummary | null>(null);
   const resumeInDungeonRef = useRef(false);
@@ -1120,6 +1132,7 @@ export function useGameState(
         gold: s.gold,
         quests: s.quests,
         bookDropPity: s.bookDropPity,
+        bookVendorPity: s.bookVendorPity,
         ...offlineData,
       });
       setLastSaved(Date.now());
@@ -1148,6 +1161,7 @@ export function useGameState(
       gold: s.gold,
       quests: s.quests,
       bookDropPity: s.bookDropPity,
+      bookVendorPity: s.bookVendorPity,
       enhancementXpPool: s.enhancementXpPool,
       ...offlineData,
     });
@@ -1264,9 +1278,9 @@ export function useGameState(
       if (floor % 10 === 0) {
         const isMegaBoss = floor % 100 === 0;
         if (isMegaBoss) {
-          if (leaveAloneModeRef.current) {
-            addLog(`☠️ Mega boss on floor ${floor} skipped (Leave Me Alone Mode).`, "log-muted");
-          } else {
+          const showReward = !leaveAloneModeRef.current ||
+            (leaveAloneModeRef.current && (leaveAloneAdvancedRef.current?.showMegaBossReward ?? false));
+          if (showReward) {
             showNotif(`☠️ MEGA BOSS FLOOR ${floor}!`);
             addLog(`☠️ MEGA BOSS on floor ${floor}! Choose your reward!`, "log-red");
             stopWalkInterval();
@@ -1274,6 +1288,8 @@ export function useGameState(
               ...prev,
               activeMegaBoss: { floor, rewardChosen: false },
             }));
+          } else {
+            addLog(`☠️ Mega boss on floor ${floor} skipped (Leave Me Alone Mode).`, "log-muted");
           }
         } else {
           showNotif(`💀 BOSS FLOOR ${floor}!`);
@@ -1395,23 +1411,32 @@ export function useGameState(
             // --- Silent auto-invest anvil execution ---
             setState((prev) => {
               if (prev.activeVendor || prev.activeAnvil || prev.activeFence) return prev;
-              const toBreak = prev.bag
+              // Bag gear to break
+              const bagToBreak = prev.bag
                 .filter((b): b is GearItem => b !== null && 'isGear' in b && rarityLte((b as GearItem).rarity, ai.anvilBreakMaxRarity!))
                 .map((g) => g as GearItem);
+              // Stash gear to break (if enabled)
+              const stashToBreak: GearItem[] = ai.anvilBreakFromStash
+                ? prev.stash.filter((g) => rarityLte(g.rarity, ai.anvilBreakMaxRarity!))
+                : [];
+              const toBreak = [...bagToBreak, ...stashToBreak];
               if (toBreak.length === 0) return prev;
               const totalCost = toBreak.reduce((sum, g) => sum + ANVIL_COST_PER_TIER[g.tier], 0);
               if (prev.gold - totalCost < ai.goldReserve) return prev; // would breach reserve
               const newBag = [...prev.bag];
+              const removedStashIds = new Set<string>();
               let totalXp = 0;
               toBreak.forEach((gear) => {
-                const idx = newBag.findIndex((b) => b !== null && 'isGear' in b && (b as GearItem).id === gear.id);
-                if (idx >= 0) newBag[idx] = null;
+                const bagIdx = newBag.findIndex((b) => b !== null && 'isGear' in b && (b as GearItem).id === gear.id);
+                if (bagIdx >= 0) newBag[bagIdx] = null;
+                else removedStashIds.add(gear.id);
                 const rawXp = TIER_XP_VALUE[gear.tier] * RARITY_XP_VALUE[gear.rarity] * 10;
                 totalXp += Math.max(1, Math.floor(rawXp * 0.1));
                 addLog(`🔄 Auto-broke ${gear.name} → Enh XP`, "log-gem");
               });
-              showNotif(`🔄 AUTO-ANVIL: +${totalXp} ENH XP`);
-              return { ...prev, bag: newBag, gold: prev.gold - totalCost, enhancementXpPool: prev.enhancementXpPool + totalXp };
+              const newStash = removedStashIds.size > 0 ? prev.stash.filter((g) => !removedStashIds.has(g.id)) : prev.stash;
+              showNotif(`🔄 AUTO-ANVIL: +${totalXp} ENH XP (${toBreak.length} items)`);
+              return { ...prev, bag: newBag, stash: newStash, gold: prev.gold - totalCost, enhancementXpPool: prev.enhancementXpPool + totalXp };
             });
           } else if (!leaveAloneModeRef.current) {
             setState((prev) => {
@@ -1423,6 +1448,65 @@ export function useGameState(
             });
           }
         }
+      }
+
+      // Book vendor spawn: after floor 200, 2% base + 0.01% per floor of pity
+      if (floor > 200) {
+        setState((prev) => {
+          const chance = 0.02 + prev.bookVendorPity * 0.0001;
+          if (Math.random() < chance) {
+            // Spawn a book vendor
+            const ai = autoInvestRef.current;
+            if (ai?.enabled && ai.buyBookVendor) {
+              // Auto-buy the book silently
+              const emptySlot = prev.bag.findIndex((b) => b === null);
+              if (emptySlot !== -1 && prev.gold >= ai.goldReserve) {
+                const preEnchanted = Math.random() < 0.3;
+                const book: BookItem = {
+                  id: `book_bv_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                  isBook: true,
+                  enchantment: preEnchanted ? ALL_STATS[Math.floor(Math.random() * ALL_STATS.length)] : null,
+                  baseValue: bookBaseValue(),
+                  sourceSlot: null,
+                };
+                const newBag = [...prev.bag];
+                newBag[emptySlot] = book as unknown as BagItem;
+                addLog(`🔄 Auto-bought book from wandering scholar (floor ${floor}) [${(chance * 100).toFixed(2)}% chance]`, "log-gem");
+                showNotif(`🔄 AUTO-INVEST: Book vendor auto-purchased!`);
+                return { ...prev, bag: newBag, bookVendorPity: 0 };
+              }
+              return { ...prev, bookVendorPity: 0 };
+            } else if (!leaveAloneModeRef.current) {
+              // Show vendor popup with a book item
+              const preEnchanted = Math.random() < 0.3;
+              const book: BookItem = {
+                id: `book_bv_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                isBook: true,
+                enchantment: preEnchanted ? ALL_STATS[Math.floor(Math.random() * ALL_STATS.length)] : null,
+                baseValue: bookBaseValue(),
+                sourceSlot: null,
+              };
+              const bookVendorItem: VendorItem = {
+                id: `bvi_${Date.now()}`,
+                type: "gear",
+                label: preEnchanted ? `📖 ${book.enchantment} Book` : "📖 Blank Book",
+                emoji: "📖",
+                cost: 100 + Math.floor(floor * 0.5),
+                gear: book as unknown as GearItem,
+              };
+              stopWalkInterval();
+              showNotif(`📖 WANDERING SCHOLAR ON FLOOR ${floor}! [${(chance * 100).toFixed(2)}%]`);
+              addLog(`📖 A wandering scholar appeared on floor ${floor}! [${(chance * 100).toFixed(2)}% chance]`, "log-gem");
+              return { ...prev, activeVendor: { floor, items: [bookVendorItem], rerollUsed: false, mergeUsed: false }, bookVendorPity: 0 };
+            } else {
+              // Leave me alone — skip but reset pity
+              addLog(`📖 Wandering scholar on floor ${floor} skipped (Leave Me Alone Mode). [${(chance * 100).toFixed(2)}%]`, "log-muted");
+              return { ...prev, bookVendorPity: 0 };
+            }
+          } else {
+            return { ...prev, bookVendorPity: prev.bookVendorPity + 1 };
+          }
+        });
       }
 
       // Fence spawn: after floor 50, every 20-30 floors (no auto-invest — fence is sell-only)
