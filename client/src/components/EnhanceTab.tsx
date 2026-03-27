@@ -1,10 +1,11 @@
 // EnhanceTab — base-only Enhancement Table
 // Sacrifice gear + materials to gain XP and upgrade a target gear piece's quality tier.
 // Rarity is NEVER changed — only quality tier advances.
+// Enhancement XP pool: global counter from Anvil breakdowns. Shown as a balance; user specifies how much to spend.
 // Design: retro pixel aesthetic matching the rest of the game
 
 import { useState } from "react";
-import type { GameState, GameActions, GearItem, MaterialType, EnhancementXpItem } from "@/hooks/useGameState";
+import type { GameState, GameActions, GearItem, MaterialType } from "@/hooks/useGameState";
 import {
   RARITY_COLORS,
   RARITY_LABELS,
@@ -87,15 +88,12 @@ export default function EnhanceTab({ state, actions }: Props) {
   // Step 2: pick sacrifices
   const [sacrificeIds, setSacrificeIds] = useState<Set<string>>(new Set());
   const [matQty, setMatQty] = useState<Partial<Record<MaterialType, number>>>({});
-  const [enhXpIds, setEnhXpIds] = useState<Set<string>>(new Set());
+  // Enhancement XP pool: how much to spend from the global pool
+  const [poolSpend, setPoolSpend] = useState(0);
   const [confirmPending, setConfirmPending] = useState(false);
 
-  // EnhXp items in bag
-  // EnhXp items can be in bag (from Anvil) or accidentally in stash (from old bug) — check both
-  const bagEnhXpItems: EnhancementXpItem[] = [
-    ...state.bag.filter((b) => b !== null && 'isEnhXp' in (b as object)),
-    ...state.stash.filter((b) => b !== null && 'isEnhXp' in (b as object)),
-  ].map((b) => b as unknown as EnhancementXpItem);
+  // Pool balance from global state
+  const poolBalance = state.enhancementXpPool;
 
   // Target can be in stash OR equipped
   const equippedList: GearItem[] = GEAR_SLOTS
@@ -120,11 +118,9 @@ export default function EnhanceTab({ state, actions }: Props) {
     const qty = matQty[t] ?? 0;
     return sum + calcMatXp(t, qty);
   }, 0);
-  const xpFromEnhXp = Array.from(enhXpIds).reduce((sum, id) => {
-    const item = bagEnhXpItems.find((x) => x.id === id);
-    return sum + (item ? item.xp : 0);
-  }, 0);
-  const totalXpPreview = xpFromGear + xpFromMats + xpFromEnhXp;
+  // Pool spend is capped to actual pool balance
+  const effectivePoolSpend = Math.min(poolSpend, poolBalance);
+  const totalXpPreview = xpFromGear + xpFromMats + effectivePoolSpend;
 
   // Current XP and threshold
   const currentXp = target ? target.enhancementXp : 0;
@@ -152,29 +148,26 @@ export default function EnhanceTab({ state, actions }: Props) {
     setMatQty((prev) => ({ ...prev, [type]: val }));
   }
 
+  function setPool(raw: string) {
+    const val = Math.max(0, Math.min(poolBalance, parseInt(raw) || 0));
+    setPoolSpend(val);
+  }
+
   function handleReset() {
     setTargetId(null);
     setSacrificeIds(new Set());
     setMatQty({});
-    setEnhXpIds(new Set());
+    setPoolSpend(0);
     setConfirmPending(false);
-  }
-
-  function toggleEnhXp(id: string) {
-    setEnhXpIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
   }
 
   function handleEnhance() {
     if (!targetId) return;
     if (confirmPending) {
-      actions.enhanceGear(targetId, Array.from(sacrificeIds), matQty, Array.from(enhXpIds));
+      actions.enhanceGear(targetId, Array.from(sacrificeIds), matQty, effectivePoolSpend);
       setSacrificeIds(new Set());
       setMatQty({});
-      setEnhXpIds(new Set());
+      setPoolSpend(0);
       setConfirmPending(false);
     } else {
       setConfirmPending(true);
@@ -206,6 +199,35 @@ export default function EnhanceTab({ state, actions }: Props) {
         <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#666", marginTop: 4 }}>
           Sacrifice gear &amp; materials to upgrade quality tier
         </div>
+      </div>
+
+      {/* Enhancement XP Pool Balance — always visible */}
+      <div style={{
+        ...s.section,
+        border: poolBalance > 0 ? "1px solid #ffaa44" : "1px solid #333",
+        background: poolBalance > 0 ? "rgba(255,170,68,0.06)" : "rgba(255,255,255,0.03)",
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        marginBottom: 10,
+      }}>
+        <span style={{ fontSize: 24 }}>✨</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 8, color: "#ffaa44", marginBottom: 3 }}>
+            ENHANCEMENT XP POOL
+          </div>
+          <div style={{ fontFamily: "'VT323', monospace", fontSize: 18, color: poolBalance > 0 ? "#ffcc44" : "#555" }}>
+            {poolBalance.toLocaleString()} XP available
+          </div>
+          <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#555", marginTop: 2 }}>
+            Earned from Anvil breakdowns · Cross-slot compatible
+          </div>
+        </div>
+        {poolBalance === 0 && (
+          <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#444", textAlign: "right" }}>
+            Use Anvil<br />to earn XP
+          </div>
+        )}
       </div>
 
       {/* STEP 1 — Select Target */}
@@ -271,11 +293,10 @@ export default function EnhanceTab({ state, actions }: Props) {
                   {totalXpPreview > 0 && (
                     <div style={{
                       position: "absolute",
-                      left: `${currentPct}%`,
-                      top: 0, bottom: 0,
-                      width: `${Math.min(progressPct - currentPct, 100 - currentPct)}%`,
-                      background: "repeating-linear-gradient(90deg, #66ff88 0px, #66ff88 4px, transparent 4px, transparent 8px)",
-                      opacity: 0.7,
+                      left: `${currentPct}%`, top: 0, bottom: 0,
+                      width: `${Math.min(100 - currentPct, progressPct - currentPct)}%`,
+                      background: "rgba(102,255,136,0.4)",
+                      borderRight: "2px dashed #66ff88",
                     }} />
                   )}
                 </div>
@@ -303,7 +324,7 @@ export default function EnhanceTab({ state, actions }: Props) {
                 {equippedList.map((gear) => (
                   <div
                     key={gear.id}
-                    onClick={() => { setTargetId(gear.id); setSacrificeIds(new Set()); setMatQty({}); }}
+                    onClick={() => { setTargetId(gear.id); setSacrificeIds(new Set()); setMatQty({}); setPoolSpend(0); }}
                     style={{ ...s.itemRow(false, RARITY_COLORS[gear.rarity]), borderColor: "#00ffcc44" }}
                   >
                     <span style={{ fontSize: 20 }}>{gear.emoji}</span>
@@ -334,7 +355,7 @@ export default function EnhanceTab({ state, actions }: Props) {
               <>{state.stash.map((gear) => (
                 <div
                   key={gear.id}
-                  onClick={() => { setTargetId(gear.id); setSacrificeIds(new Set()); setMatQty({}); }}
+                  onClick={() => { setTargetId(gear.id); setSacrificeIds(new Set()); setMatQty({}); setPoolSpend(0); }}
                   style={s.itemRow(false, RARITY_COLORS[gear.rarity])}
                 >
                   <span style={{ fontSize: 20 }}>{gear.emoji}</span>
@@ -426,48 +447,66 @@ export default function EnhanceTab({ state, actions }: Props) {
             )}
           </div>
 
-          {/* Sacrifice Enhancement XP Items */}
-          {bagEnhXpItems.length > 0 && (
-            <div style={s.section}>
-              <div style={s.sectionTitle}>③ SACRIFICE ENH. XP</div>
-              <div style={{ ...s.muted, marginBottom: 8 }}>
-                Enhancement XP items from the Anvil. Cross-slot — usable on any gear piece.
-              </div>
-              <div style={{ maxHeight: 180, overflowY: "auto" }}>
-                {bagEnhXpItems.map((item) => {
-                  const selected = enhXpIds.has(item.id);
-                  const slotLabel = item.sourceSlot ? item.sourceSlot.charAt(0).toUpperCase() + item.sourceSlot.slice(1) : "?";
-                  const itemLevel = item.level ?? 1;
-                  const itemQty = item.qty ?? 1;
-                  return (
-                    <div
-                      key={item.id}
-                      onClick={() => toggleEnhXp(item.id)}
-                      style={s.itemRow(selected, "#ffaa44")}
-                    >
-                      <span style={{ fontSize: 20 }}>✨</span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ffaa44" }}>
-                          Lv.{itemLevel} Enhancement XP
-                        </div>
-                        <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#666" }}>
-                          From: {slotLabel} · Qty: {itemQty}
-                        </div>
-                      </div>
-                      <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: selected ? "#66ff88" : "#ffaa44", textAlign: "right", flexShrink: 0 }}>
-                        +{item.xp} XP
-                        {selected && <div style={{ fontSize: 11, color: "#66ff88" }}>✓ selected</div>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+          {/* Enhancement XP Pool spend */}
+          <div style={{ ...s.section, border: poolBalance > 0 ? "1px solid #ffaa44" : "1px solid #333" }}>
+            <div style={s.sectionTitle}>③ SPEND ENH. XP POOL</div>
+            <div style={{ ...s.muted, marginBottom: 8 }}>
+              Spend XP from your pool (earned at the Anvil). Cross-slot compatible.
             </div>
-          )}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 20 }}>✨</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ccc" }}>
+                  Pool Balance
+                </div>
+                <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#555" }}>
+                  Available: {poolBalance.toLocaleString()} XP
+                </div>
+              </div>
+              <input
+                type="number"
+                min={0}
+                max={poolBalance}
+                value={poolSpend || ""}
+                placeholder="0"
+                onChange={(e) => setPool(e.target.value)}
+                disabled={poolBalance === 0}
+                style={{
+                  width: 80,
+                  background: "#0a0a1a",
+                  border: `1px solid ${poolSpend > 0 ? "#ffaa44" : "#333"}`,
+                  color: poolSpend > 0 ? "#ffaa44" : "#666",
+                  fontFamily: "'VT323', monospace",
+                  fontSize: 14,
+                  padding: "4px 6px",
+                  borderRadius: 3,
+                  textAlign: "center",
+                }}
+              />
+              {poolBalance > 0 && (
+                <button
+                  onClick={() => setPoolSpend(poolBalance)}
+                  style={{ fontFamily: "'VT323', monospace", fontSize: 12, background: "none", border: "1px solid #ffaa44", color: "#ffaa44", padding: "4px 8px", cursor: "pointer", borderRadius: 3 }}
+                >
+                  MAX
+                </button>
+              )}
+            </div>
+            {effectivePoolSpend > 0 && (
+              <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#ffaa44", marginTop: 6 }}>
+                +{effectivePoolSpend.toLocaleString()} XP from pool
+              </div>
+            )}
+            {poolBalance === 0 && (
+              <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#444", marginTop: 6 }}>
+                No pool XP — use the Anvil (floor 100+) to earn some
+              </div>
+            )}
+          </div>
 
           {/* Sacrifice Materials */}
           <div style={s.section}>
-            <div style={s.sectionTitle}>{bagEnhXpItems.length > 0 ? "④" : "③"} SACRIFICE MATERIALS</div>
+            <div style={s.sectionTitle}>④ SACRIFICE MATERIALS</div>
             <div style={{ ...s.muted, marginBottom: 8 }}>
               Enter quantities to sacrifice. Each material grants XP.
             </div>
@@ -521,17 +560,17 @@ export default function EnhanceTab({ state, actions }: Props) {
 
           {/* Summary & Confirm */}
           <div style={s.section}>
-            <div style={s.sectionTitle}>{bagEnhXpItems.length > 0 ? "⑤" : "④"} ENHANCE</div>
+            <div style={s.sectionTitle}>⑤ ENHANCE</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", fontFamily: "'VT323', monospace", fontSize: 14, color: "#aaa", marginBottom: 10 }}>
               <span>Gear: <span style={{ color: "#aa88ff" }}>{xpFromGear}</span></span>
+              <span>Pool: <span style={{ color: "#ffaa44" }}>{effectivePoolSpend}</span></span>
               <span>Mats: <span style={{ color: "#aa88ff" }}>{xpFromMats}</span></span>
-              {xpFromEnhXp > 0 && <span>Enh.XP: <span style={{ color: "#ffaa44" }}>{xpFromEnhXp}</span></span>}
               <span>Total: <span style={{ color: "#66ff88" }}>+{totalXpPreview}</span></span>
             </div>
 
-                    {totalXpPreview === 0 && !alreadyOverThreshold && (
+            {totalXpPreview === 0 && !alreadyOverThreshold && (
               <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ff6644", marginBottom: 8 }}>
-                Select at least one gear piece or material to sacrifice
+                Select at least one gear piece, material, or pool XP to sacrifice
               </div>
             )}
             {alreadyOverThreshold && totalXpPreview === 0 && (
@@ -575,6 +614,7 @@ export default function EnhanceTab({ state, actions }: Props) {
         <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#888", lineHeight: 1.6 }}>
           • Select a target gear piece to enhance<br />
           • Sacrifice other gear and/or materials as fuel<br />
+          • Spend Enhancement XP from your pool (earned at the Anvil)<br />
           • XP = tier level × rarity level × 10 (gear) or mat tier × qty (mats)<br />
           • When XP threshold is met, the item upgrades one quality tier<br />
           • Rarity is <span style={{ color: "#ffcc44" }}>never</span> changed — only quality tier advances<br />

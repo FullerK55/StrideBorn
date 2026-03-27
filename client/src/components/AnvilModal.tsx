@@ -1,10 +1,10 @@
 // AnvilModal.tsx
-// In-dungeon Anvil event (floor 100+): break down bag gear into Enhancement XP items.
-// Enhancement XP items are cross-slot but only worth 10% of the gear's full XP value.
+// In-dungeon Anvil event (floor 100+): break down bag gear into the Enhancement XP pool.
+// Enhancement XP pool is cross-slot but only worth 10% of the gear's full XP value.
 // Design: retro pixel aesthetic, red/ember-bordered dark modal matching VendorModal style.
 
 import { useState } from "react";
-import type { GameState, GameActions, GearItem, EnhancementXpItem } from "@/hooks/useGameState";
+import type { GameState, GameActions, GearItem } from "@/hooks/useGameState";
 import {
   RARITY_COLORS,
   RARITY_LABELS,
@@ -74,17 +74,13 @@ export default function AnvilModal({ state, actions }: Props) {
 
   if (!activeAnvil) return null;
 
-  // Only show actual gear items (not materials, not EnhXp items)
+  const poolBalance = state.enhancementXpPool;
+
+  // Only show actual gear items (not materials, not books)
   const bagGear: { idx: number; gear: GearItem }[] = bag
     .map((b, idx) => ({ idx, b }))
     .filter(({ b }) => b && 'isGear' in b && (b as GearItem).isGear === true)
     .map(({ idx, b }) => ({ idx, gear: b as GearItem }));
-
-  // EnhXp items already in bag
-  const existingEnhXp: { idx: number; item: EnhancementXpItem & { id: string } }[] = bag
-    .map((b, idx) => ({ idx, b }))
-    .filter(({ b }) => b && "isEnhXp" in b)
-    .map(({ idx, b }) => ({ idx, item: b as unknown as EnhancementXpItem & { id: string } }));
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -136,10 +132,35 @@ export default function AnvilModal({ state, actions }: Props) {
         {/* Scrollable body */}
         <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px" }}>
 
+          {/* Pool balance banner */}
+          <div style={{
+            background: poolBalance > 0 ? "rgba(255,170,68,0.08)" : "rgba(255,100,34,0.07)",
+            border: poolBalance > 0 ? "1px solid #ffaa44" : "1px solid #3a1a00",
+            borderRadius: 4,
+            padding: "10px 12px",
+            marginBottom: 14,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}>
+            <span style={{ fontSize: 22 }}>✨</span>
+            <div>
+              <div style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 8, color: "#ffaa44", marginBottom: 3 }}>
+                ENHANCEMENT XP POOL
+              </div>
+              <div style={{ fontFamily: "'VT323', monospace", fontSize: 18, color: poolBalance > 0 ? "#ffcc44" : "#555" }}>
+                {poolBalance.toLocaleString()} XP
+              </div>
+              <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#666" }}>
+                Spend at the Enhancement Table (base) · Cross-slot
+              </div>
+            </div>
+          </div>
+
           {/* Info banner */}
           <div style={{ background: "rgba(255,100,34,0.07)", border: "1px solid #3a1a00", borderRadius: 4, padding: "10px 12px", marginBottom: 14 }}>
             <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#cc8844", lineHeight: 1.5 }}>
-              Break down gear into <span style={{ color: "#ff8844" }}>Enhancement XP items</span> that can be used on <em>any slot</em> at the Enhancement Table.
+              Break down gear to add XP directly to your <span style={{ color: "#ffaa44" }}>Enhancement XP Pool</span>.
               <br />
               <span style={{ color: "#ff4422" }}>⚠ Only 10% of the gear's full XP value is retained.</span>
               <br />
@@ -167,6 +188,9 @@ export default function AnvilModal({ state, actions }: Props) {
                     <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#666" }}>
                       {RARITY_LABELS[gear.rarity]} · {TIER_LABELS[gear.tier]} · {getSlotLabel(gear.slot)}
                     </div>
+                    <div style={{ fontFamily: "'VT323', monospace", fontSize: 11, color: "#444" }}>
+                      Full XP: {fullXp} → Pool: +{enhXp}
+                    </div>
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0 }}>
                     <div style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 7, color: "#ff8844" }}>
@@ -181,26 +205,6 @@ export default function AnvilModal({ state, actions }: Props) {
               );
             })
           )}
-
-          {/* Existing EnhXp items in bag */}
-          {existingEnhXp.length > 0 && (
-            <div style={{ marginTop: 14 }}>
-              <div style={s.sectionTitle}>ENHANCEMENT XP IN BAG</div>
-              {existingEnhXp.map(({ item }) => (
-                <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "rgba(255,100,34,0.05)", border: "1px solid #2a1a00", borderRadius: 3, marginBottom: 4 }}>
-                  <span style={{ fontSize: 16 }}>✨</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ff8844" }}>
-                      Enhancement XP · {item.xp} XP
-                    </div>
-                    <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#555" }}>
-                      From: {getSlotLabel(item.sourceSlot)} · Usable on any slot
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
         {/* Footer */}
@@ -208,7 +212,7 @@ export default function AnvilModal({ state, actions }: Props) {
           {selectedIds.size > 0 && (
             <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ff8844", textAlign: "center" }}>
               {selectedIds.size} item{selectedIds.size > 1 ? "s" : ""} →{" "}
-              <span style={{ color: "#ffcc44" }}>+{totalEnhXp} Enh XP</span>
+              <span style={{ color: "#ffcc44" }}>+{totalEnhXp} Pool XP</span>
               <span style={{ color: "#555" }}> ({totalRawXp} full)</span>
               {" · "}
               <span style={{ color: canAfford ? "#ffcc44" : "#ff4422" }}>{totalGoldCost}g</span>

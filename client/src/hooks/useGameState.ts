@@ -475,6 +475,7 @@ export interface GameState {
   portal: { floor: number; usedToBase: boolean; usedReturn: boolean } | null;
   lastRerollResult: { gearId: string; statIdx: number; oldValue: number; newValue: number }[] | null;
   bookDropPity: number; // consecutive mini boss misses, resets to 0 on drop
+  enhancementXpPool: number; // global pool of Enhancement XP from Anvil breakdowns
 }
 
 export interface OfflineSummary {
@@ -510,7 +511,7 @@ export interface GameActions {
   salvageGear: (gearId: string) => void;
   shopReroll: (gearId: string) => void;
   shopBuyBagSlot: () => void;
-  enhanceGear: (targetId: string, sacrificeGearIds: string[], sacrificeMaterials: Partial<Materials>, sacrificeEnhXpIds?: string[]) => void;
+  enhanceGear: (targetId: string, sacrificeGearIds: string[], sacrificeMaterials: Partial<Materials>, enhXpPoolAmount?: number) => void;
   anvilBreakdown: (gearIds: string[]) => void;
   dismissAnvil: () => void;
   vendorMergeEnhXp: () => void;
@@ -972,6 +973,7 @@ function buildInitialState(
     portal: null,
     lastRerollResult: null,
     bookDropPity: profile.bookDropPity ?? 0,
+    enhancementXpPool: (profile as Profile & { enhancementXpPool?: number }).enhancementXpPool ?? 0,
   };
 }
 
@@ -1125,11 +1127,12 @@ export function useGameState(
       runes: s.runes,
       runs: s.runs,
       lives: s.lives,
-        gold: s.gold,
-        quests: s.quests,
-        bookDropPity: s.bookDropPity,
-        ...offlineData,
-      });
+      gold: s.gold,
+      quests: s.quests,
+      bookDropPity: s.bookDropPity,
+      enhancementXpPool: s.enhancementXpPool,
+      ...offlineData,
+    });
 
     setLastSaved(Date.now());
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1910,7 +1913,7 @@ export function useGameState(
   }, [addLog, showNotif]);
 
   // ---- Enhancement action (base only) ----
-  const enhanceGear = useCallback((targetId: string, sacrificeGearIds: string[], sacrificeMaterials: Partial<Materials>, sacrificeEnhXpIds: string[] = []) => {
+  const enhanceGear = useCallback((targetId: string, sacrificeGearIds: string[], sacrificeMaterials: Partial<Materials>, enhXpPoolAmount = 0) => {
     setState((prev) => {
       if (prev.isInDungeon) { showNotif("RETURN TO BASE TO ENHANCE!"); return prev; }
       // Target can be in stash OR in an equipped slot
@@ -1931,20 +1934,9 @@ export function useGameState(
         xpGained += TIER_XP_VALUE[g.tier] * RARITY_XP_VALUE[g.rarity] * 10;
       });
 
-      // Calculate XP from Enhancement XP items in bag OR stash (cross-slot, 10% already baked in)
-      type EnhXpBagItem = EnhancementXpItem & { id: string };
-      // Find in bag
-      const enhXpInBag = sacrificeEnhXpIds
-        .map((id) => { const idx = prev.bag.findIndex((b) => b && 'isEnhXp' in b && (b as unknown as EnhXpBagItem).id === id); return idx >= 0 ? { source: 'bag' as const, idx, item: prev.bag[idx] as unknown as EnhXpBagItem } : null; })
-        .filter(Boolean) as { source: 'bag'; idx: number; item: EnhXpBagItem }[];
-      // Find remaining in stash
-      const foundInBagIds = new Set(enhXpInBag.map((e) => e.item.id));
-      const enhXpInStash = sacrificeEnhXpIds
-        .filter((id) => !foundInBagIds.has(id))
-        .map((id) => { const idx = prev.stash.findIndex((b) => b && 'isEnhXp' in b && (b as unknown as EnhXpBagItem).id === id); return idx >= 0 ? { source: 'stash' as const, idx, item: prev.stash[idx] as unknown as EnhXpBagItem } : null; })
-        .filter(Boolean) as { source: 'stash'; idx: number; item: EnhXpBagItem }[];
-      const enhXpItems = [...enhXpInBag, ...enhXpInStash];
-      enhXpItems.forEach(({ item }) => { xpGained += item.xp; });
+      // Calculate XP from Enhancement XP pool (cross-slot, 10% already baked in at Anvil)
+      const poolAmountToUse = Math.min(enhXpPoolAmount, prev.enhancementXpPool);
+      xpGained += poolAmountToUse;
 
       // Calculate XP from sacrificed materials
       (Object.keys(sacrificeMaterials) as MaterialType[]).forEach((matType) => {
@@ -2015,14 +2007,10 @@ export function useGameState(
         addLog(`⚡ Enhanced ${target.name}: +${xpGained} XP (${finalXp}/${threshold})`, "log-gem");
       }
 
-      // Remove consumed EnhXp items from bag and stash
-      const enhXpBagIdxSet = new Set(enhXpInBag.map((e) => e.idx));
-      const enhXpStashIdxSet = new Set(enhXpInStash.map((e) => e.idx));
-      const newBag = prev.bag.map((b, i) => enhXpBagIdxSet.has(i) ? null : b);
-      // Remove stash EnhXp items (filter by index, preserving target item)
-      newStash = newStash.filter((_, i) => !enhXpStashIdxSet.has(i));
+      // Deduct from Enhancement XP pool
+      const newEnhXpPool = Math.max(0, prev.enhancementXpPool - poolAmountToUse);
 
-      return { ...prev, stash: newStash, materials: newMats, bag: newBag, equippedGear: newEquipped };
+      return { ...prev, stash: newStash, materials: newMats, bag: prev.bag, equippedGear: newEquipped, enhancementXpPool: newEnhXpPool };
     });
   }, [addLog, showNotif]);
 
@@ -2048,13 +2036,12 @@ export function useGameState(
       gearToBreak.forEach(({ idx, gear }) => {
         const rawXp = TIER_XP_VALUE[gear.tier] * RARITY_XP_VALUE[gear.rarity] * 10;
         const enhXp = Math.max(1, Math.floor(rawXp * 0.1)); // 10% of full XP
-        const enhItem: EnhancementXpItem = { id: `enhxp_${Date.now()}_${idx}`, xp: enhXp, level: 1, qty: 1, sourceSlot: gear.slot, isEnhXp: true };
-        newBag[idx] = enhItem as unknown as BagItem;
+        newBag[idx] = null; // remove gear from bag
         totalXp += enhXp;
-        addLog(`⚔️ Broke down ${gear.name} → ${enhXp} Enh XP (-${ANVIL_COST_PER_TIER[gear.tier]}g)`, "log-gem");
+        addLog(`⚔️ Broke down ${gear.name} → +${enhXp} Enh XP (-${ANVIL_COST_PER_TIER[gear.tier]}g)`, "log-gem");
       });
-      showNotif(`ANVIL: +${totalXp} ENH XP CREATED`);
-      return { ...prev, bag: newBag, gold: prev.gold - totalCost };
+      showNotif(`ANVIL: +${totalXp} ENH XP ADDED TO POOL`);
+      return { ...prev, bag: newBag, gold: prev.gold - totalCost, enhancementXpPool: prev.enhancementXpPool + totalXp };
     });
   }, [addLog, showNotif]);
 
@@ -2212,6 +2199,8 @@ export function useGameState(
       lives: s.lives,
       gold: s.gold,
       quests: s.quests,
+      bookDropPity: s.bookDropPity,
+      enhancementXpPool: s.enhancementXpPool,
       ...offlineData,
     });
     setLastSaved(Date.now());

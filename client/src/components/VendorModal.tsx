@@ -6,7 +6,7 @@
 // Design: retro pixel aesthetic, gold-bordered dark modal
 
 import { useState, useMemo } from "react";
-import type { GameState, GameActions, GearItem, MaterialItem, MaterialType, EnhancementXpItem } from "@/hooks/useGameState";
+import type { GameState, GameActions, GearItem, MaterialItem, MaterialType } from "@/hooks/useGameState";
 import {
   RARITY_COLORS,
   RARITY_LABELS,
@@ -17,8 +17,6 @@ import {
   VENDOR_REROLL_TIER_MULT,
   VENDOR_REROLL_RARITY_MULT,
   VENDOR_MERGE_COST_PER_UNIT,
-  ENH_XP_MERGE_COST_PER_LEVEL,
-  ENH_XP_MERGE_CAP,
   statRange,
 } from "@/hooks/useGameState";
 
@@ -143,25 +141,8 @@ export default function VendorModal({ state, actions }: Props) {
     return { grouped, totalCost: Math.ceil(totalCost), slotsBefore, slotsAfter, slotsSaved: slotsBefore - slotsAfter };
   }, [state.bag]);
 
-  // ── Merge preview — Enhancement XP ────────────────────────────────────────
-  const enhXpMergePreview = useMemo(() => {
-    const enhSlots: EnhancementXpItem[] = [];
-    state.bag.forEach((b) => { if (b && 'isEnhXp' in b) enhSlots.push(b as unknown as EnhancementXpItem); });
-    const grouped: Partial<Record<number, number>> = {};
-    enhSlots.forEach((item) => { grouped[item.level] = (grouped[item.level] ?? 0) + item.qty; });
-    let totalCost = 0;
-    let slotsBefore = enhSlots.length;
-    let slotsAfter = 0;
-    (Object.keys(grouped) as unknown as number[]).forEach((lvl) => {
-      const qty = grouped[lvl]!;
-      totalCost += qty * ENH_XP_MERGE_COST_PER_LEVEL[lvl];
-      slotsAfter += Math.ceil(qty / ENH_XP_MERGE_CAP);
-    });
-    return { grouped, totalCost: Math.ceil(totalCost), slotsBefore, slotsAfter, slotsSaved: slotsBefore - slotsAfter };
-  }, [state.bag]);
-
-  const totalMergeCost = matMergePreview.totalCost + enhXpMergePreview.totalCost;
-  const hasMergeable = matMergePreview.slotsBefore > 1 || enhXpMergePreview.slotsBefore > 1;
+  const totalMergeCost = matMergePreview.totalCost;
+  const hasMergeable = matMergePreview.slotsBefore > 1;
 
   // ── Determine which service this vendor offers ─────────────────────────────
   const hasReroll = vendor.items.some((i) => i.type === "reroll");
@@ -363,7 +344,7 @@ export default function VendorModal({ state, actions }: Props) {
                 <>
                   <div style={s.sectionTitle}>📦 COMPRESS STACKS</div>
                   <div style={{ ...s.muted, marginBottom: 10 }}>
-                    Merges material stacks (up to {MAT_MERGE_CAP}) and Enhancement XP stacks (up to {ENH_XP_MERGE_CAP}) in your bag, freeing slots.
+                    Merges material stacks (up to {MAT_MERGE_CAP}) in your bag, freeing bag slots.
                   </div>
 
                   {!hasMergeable ? (
@@ -394,35 +375,11 @@ export default function VendorModal({ state, actions }: Props) {
                         </div>
                       )}
 
-                      {/* Enhancement XP section */}
-                      {enhXpMergePreview.slotsBefore > 1 && (
-                        <div style={{ background: "rgba(0,0,0,0.4)", border: "1px solid #333", borderRadius: 4, padding: "10px 12px", marginBottom: 10 }}>
-                          <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#888", marginBottom: 6 }}>ENHANCEMENT XP (→ stacks of {ENH_XP_MERGE_CAP})</div>
-                          {(Object.keys(enhXpMergePreview.grouped) as unknown as number[]).map((lvl) => {
-                            const qty = enhXpMergePreview.grouped[lvl]!;
-                            const stacksAfter = Math.ceil(qty / ENH_XP_MERGE_CAP);
-                            const cost = Math.ceil(qty * ENH_XP_MERGE_COST_PER_LEVEL[lvl]);
-                            return (
-                              <div key={lvl} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-                                <span style={{ fontSize: 18 }}>✨</span>
-                                <div style={{ flex: 1, fontFamily: "'VT323', monospace", fontSize: 14, color: "#ccc" }}>
-                                  Lv.{lvl} Enh XP: {qty} → {stacksAfter} stack{stacksAfter !== 1 ? "s" : ""}
-                                </div>
-                                <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#ffcc44" }}>{cost}g</div>
-                              </div>
-                            );
-                          })}
-                          <div style={{ borderTop: "1px solid #333", marginTop: 6, paddingTop: 6, fontFamily: "'VT323', monospace", fontSize: 13, color: "#888" }}>
-                            Slots: {enhXpMergePreview.slotsBefore} → {enhXpMergePreview.slotsAfter} <span style={{ color: "#66ff88" }}>(saves {enhXpMergePreview.slotsSaved})</span>
-                          </div>
-                        </div>
-                      )}
-
                       {/* Total cost and action */}
                       <div style={{ background: "rgba(0,0,0,0.3)", border: "1px solid #444", borderRadius: 4, padding: "10px 12px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <div style={{ fontFamily: "'VT323', monospace", fontSize: 15, color: "#ffcc44" }}>Total Cost: {totalMergeCost}g</div>
                         <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#66ff88" }}>
-                          Saves {matMergePreview.slotsSaved + enhXpMergePreview.slotsSaved} slot{matMergePreview.slotsSaved + enhXpMergePreview.slotsSaved !== 1 ? "s" : ""}
+                          Saves {matMergePreview.slotsSaved} slot{matMergePreview.slotsSaved !== 1 ? "s" : ""}
                         </div>
                       </div>
 
@@ -442,15 +399,7 @@ export default function VendorModal({ state, actions }: Props) {
                             📦 MATS ({matMergePreview.totalCost}g)
                           </button>
                         )}
-                        {enhXpMergePreview.slotsBefore > 1 && (
-                          <button
-                            onClick={actions.vendorMergeEnhXp}
-                            disabled={state.gold < enhXpMergePreview.totalCost}
-                            style={s.btn(state.gold >= enhXpMergePreview.totalCost, "#cc88ff")}
-                          >
-                            ✨ ENH XP ({enhXpMergePreview.totalCost}g)
-                          </button>
-                        )}
+
                       </div>
                     </>
                   )}
