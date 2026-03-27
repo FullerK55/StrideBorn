@@ -1391,6 +1391,7 @@ export function useGameState(
       const newMaterials = { ...prev.materials };
       let gearStashed = 0;
       let matsCollected = 0;
+      let booksCollected = 0;
 
       // Build new bag — preserve EnhXp items and books in their slots; clear everything else
       const newBag: (BagItem | null)[] = Array(prev.bagSize).fill(null);
@@ -1406,9 +1407,9 @@ export function useGameState(
           return;
         }
         if ('isBook' in item) {
-          // Keep books in bag too
-          const slot = newBag.findIndex((s) => s === null);
-          if (slot >= 0) newBag[slot] = item;
+          // Auto-collect books into stash (bookshelf tab) on arrival at base
+          newStash.push(item as unknown as GearItem);
+          booksCollected++;
           return;
         }
         if ('isMaterial' in item) {
@@ -1427,8 +1428,8 @@ export function useGameState(
 
       if (gearStashed > 0) addLog(`📦 Stashed ${gearStashed} gear piece${gearStashed > 1 ? "s" : ""}!`, "log-green");
       if (matsCollected > 0) addLog(`⚙️ Collected materials!`, "log-gem");
-      if (enhXpSlot > 0) addLog(`✨ ${enhXpSlot} Enh XP item${enhXpSlot > 1 ? "s" : ""} kept in bag.`, "log-gem");
-      if (gearStashed === 0 && matsCollected === 0 && enhXpSlot === 0) addLog("🏠 Returned to base empty-handed.", "log-muted");
+      if (booksCollected > 0) addLog(`📚 ${booksCollected} book${booksCollected > 1 ? "s" : ""} moved to bookshelf!`, "log-gem");
+      if (gearStashed === 0 && matsCollected === 0 && booksCollected === 0) addLog("🏠 Returned to base empty-handed.", "log-muted");
       addLog("🏠 Back at base. Rest up, adventurer.", "log-gold");
       showNotif("🏠 BACK AT BASE!");
 
