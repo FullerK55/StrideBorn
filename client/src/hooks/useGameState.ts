@@ -367,7 +367,7 @@ export interface BookItem {
 export const BOOKSHELF_SIZE = 20;
 
 // Mega boss reward choices
-export type MegaBossReward = "enchanting_table" | "placeholder_a" | "placeholder_b";
+export type MegaBossReward = "enchanting_table" | "portal" | "placeholder_a";
 export interface ActiveMegaBoss {
   floor: number;
   rewardChosen: boolean;
@@ -472,7 +472,7 @@ export interface GameState {
   activeFence: ActiveFence | null;
   activeMegaBoss: ActiveMegaBoss | null;
   activeEnchantingTable: ActiveEnchantingTable | null;
-  bookshelf: BookItem[];
+  portal: { floor: number; usedToBase: boolean; usedReturn: boolean } | null;
   lastRerollResult: { gearId: string; statIdx: number; oldValue: number; newValue: number }[] | null;
 }
 
@@ -521,6 +521,8 @@ export interface GameActions {
   enchantingTableStrip: (gearId: string, statIdx: number) => void;
   placeBookOnGear: (bookId: string, gearId: string) => void;
   dropBookFromShelf: (bookId: string) => void;
+  usePortalToBase: () => void;
+  usePortalReturn: () => void;
   clearRerollResult: () => void;
   log: LogEntry[];
   notification: string | null;
@@ -966,7 +968,7 @@ function buildInitialState(
     activeFence: null,
     activeMegaBoss: null,
     activeEnchantingTable: null,
-    bookshelf: (profile as Profile & { bookshelf?: BookItem[] }).bookshelf ?? [],
+    portal: null,
     lastRerollResult: null,
   };
 }
@@ -2014,6 +2016,14 @@ export function useGameState(
           activeEnchantingTable: { floor: prev.activeMegaBoss.floor },
         };
       }
+      if (reward === "portal") {
+        addLog(`🌀 Portal granted on floor ${prev.activeMegaBoss.floor}! Use it to return to base and come back.`, "log-gem");
+        return {
+          ...prev,
+          activeMegaBoss: { ...prev.activeMegaBoss, rewardChosen: true },
+          portal: { floor: prev.activeMegaBoss.floor, usedToBase: false, usedReturn: false },
+        };
+      }
       // placeholder rewards
       addLog(`🏆 Reward chosen: ${reward}`, "log-gold");
       return { ...prev, activeMegaBoss: { ...prev.activeMegaBoss, rewardChosen: true } };
@@ -2041,12 +2051,11 @@ export function useGameState(
       const gear = prev.stash.find((g) => g.id === gearId);
       if (!gear) { showNotif("ITEM NOT IN STASH!"); return prev; }
       if (statIdx < 0 || statIdx >= gear.stats.length) { showNotif("INVALID STAT!"); return prev; }
-      if (prev.bookshelf.length >= BOOKSHELF_SIZE) { showNotif("BOOKSHELF FULL! (20 max)"); return prev; }
       const strippedStat = gear.stats[statIdx];
       // Remove stat from gear
       const newStats = gear.stats.filter((_, i) => i !== statIdx);
       const newStash = prev.stash.map((g) => g.id === gearId ? { ...g, stats: newStats } : g);
-      // Create book
+      // Create book and add to stash
       const book: BookItem = {
         id: `book_${Date.now()}_${Math.random().toString(36).slice(2)}`,
         isBook: true,
@@ -2058,40 +2067,67 @@ export function useGameState(
       return {
         ...prev,
         gold: prev.gold - ENCHANTING_STRIP_COST,
-        stash: newStash,
-        bookshelf: [...prev.bookshelf, book],
+        stash: [...newStash, book as unknown as GearItem],
       };
     });
   }, [addLog, showNotif]);
 
-  // Place a book's enchantment onto any stash gear piece
+   // Place a book's enchantment onto any stash gear piece (books stored in stash)
   const placeBookOnGear = useCallback((bookId: string, gearId: string) => {
     setState((prev) => {
       if (prev.isInDungeon) { showNotif("RETURN TO BASE TO USE BOOKS!"); return prev; }
-      const book = prev.bookshelf.find((b) => b.id === bookId);
-      if (!book) { showNotif("BOOK NOT FOUND!"); return prev; }
+      const bookAsGear = prev.stash.find((g) => g.id === bookId);
+      const book = bookAsGear as unknown as BookItem;
+      if (!book || !book.isBook) { showNotif("BOOK NOT FOUND!"); return prev; }
       if (!book.enchantment) { showNotif("BLANK BOOK — USE ENCHANTING TABLE FIRST!"); return prev; }
-      const gear = prev.stash.find((g) => g.id === gearId);
+      const gear = prev.stash.find((g) => g.id === gearId && !(g as unknown as BookItem).isBook);
       if (!gear) { showNotif("ITEM NOT IN STASH!"); return prev; }
       // Add the enchantment stat at base value
       const newStat = { stat: book.enchantment, value: book.baseValue };
-      const newStash = prev.stash.map((g) =>
-        g.id === gearId ? { ...g, stats: [...g.stats, newStat] } : g
-      );
-      // Consume the book
-      const newShelf = prev.bookshelf.filter((b) => b.id !== bookId);
+      const newStash = prev.stash
+        .filter((g) => g.id !== bookId)
+        .map((g) => g.id === gearId ? { ...g, stats: [...g.stats, newStat] } : g);
       addLog(`📖 Placed "${book.enchantment}" onto ${gear.name} (base value: ${book.baseValue})`, "log-gem");
-      return { ...prev, stash: newStash, bookshelf: newShelf };
+      return { ...prev, stash: newStash };
     });
   }, [addLog, showNotif]);
-
   const dropBookFromShelf = useCallback((bookId: string) => {
     setState((prev) => ({
       ...prev,
-      bookshelf: prev.bookshelf.filter((b) => b.id !== bookId),
+      stash: prev.stash.filter((g) => g.id !== bookId),
     }));
     addLog("📖 Book discarded.", "log-muted");
   }, [addLog]);
+  // Portal actions
+  const usePortalToBase = useCallback(() => {
+    setState((prev) => {
+      if (!prev.portal || prev.portal.usedToBase) { showNotif("NO PORTAL AVAILABLE!"); return prev; }
+      if (!prev.isInDungeon || prev.isReturning) { showNotif("MUST BE IN DUNGEON!"); return prev; }
+      addLog(`🌀 Portal used — teleporting to base from floor ${prev.currentFloor}!`, "log-gem");
+      showNotif("🌀 PORTAL — TELEPORTING TO BASE!");
+      return { ...prev, portal: { ...prev.portal, usedToBase: true } };
+    });
+    // Trigger instant base arrival
+    setTimeout(() => arriveAtBase(), 100);
+  }, [addLog, showNotif]);
+  const usePortalReturn = useCallback(() => {
+    setState((prev) => {
+      if (!prev.portal || !prev.portal.usedToBase || prev.portal.usedReturn) { showNotif("PORTAL RETURN UNAVAILABLE!"); return prev; }
+      if (prev.isInDungeon) { showNotif("ALREADY IN DUNGEON!"); return prev; }
+      addLog(`🌀 Portal return — back to floor ${prev.portal.floor}!`, "log-gem");
+      showNotif("🌀 PORTAL — RETURNING TO DUNGEON!");
+      return {
+        ...prev,
+        isInDungeon: true,
+        isReturning: false,
+        currentFloor: prev.portal.floor,
+        steps: 0,
+        bag: Array(prev.bagSize).fill(null),
+        portal: { ...prev.portal, usedReturn: true },
+      };
+    });
+    startWalkInterval();
+  }, [addLog, showNotif, startWalkInterval]);
 
   const clearRerollResult = useCallback(() => {
     setState((prev) => ({ ...prev, lastRerollResult: null }));
@@ -2116,7 +2152,6 @@ export function useGameState(
       lives: s.lives,
       gold: s.gold,
       quests: s.quests,
-      bookshelf: s.bookshelf,
       ...offlineData,
     });
     setLastSaved(Date.now());
@@ -2167,6 +2202,8 @@ export function useGameState(
       enchantingTableStrip,
       placeBookOnGear,
       dropBookFromShelf,
+      usePortalToBase,
+      usePortalReturn,
       clearRerollResult,
       log,
       notification,

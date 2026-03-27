@@ -18,16 +18,16 @@ const REWARDS: { id: MegaBossReward; emoji: string; title: string; desc: string;
     available: true,
   },
   {
+    id: "portal",
+    emoji: "🌀",
+    title: "DUNGEON PORTAL",
+    desc: "A portal opens to base. Return instantly, manage your gear, then step back through to resume from this exact floor. One trip each way.",
+    available: true,
+  },
+  {
     id: "placeholder_a",
     emoji: "⚗️",
     title: "ALCHEMIST'S BOON",
-    desc: "Coming soon...",
-    available: false,
-  },
-  {
-    id: "placeholder_b",
-    emoji: "🗺️",
-    title: "CARTOGRAPHER'S MAP",
     desc: "Coming soon...",
     available: false,
   },

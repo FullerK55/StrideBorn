@@ -1,7 +1,7 @@
-// BookshelfTab — base-only tab showing all books on the bookshelf
+// BooksTab — base-only tab showing all books stored in the stash
+// Books are stored in stash (stash is unlimited), filtered by isBook flag
 // Each book can be placed onto any stash gear piece (consumes the book)
 // Books can also be discarded
-// Design: dark library aesthetic, pixel font
 
 import { useState } from "react";
 import type { GameState, GameActions, GearItem, BookItem } from "@/hooks/useGameState";
@@ -17,12 +17,16 @@ export default function BookshelfTab({ state, actions }: Props) {
   const [selectedGearId, setSelectedGearId] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState<string | null>(null);
 
+  // Books are stored in stash with isBook flag
+  const books = state.stash.filter((g) => (g as unknown as BookItem).isBook) as unknown as BookItem[];
+  const gearItems = state.stash.filter((g) => !(g as unknown as BookItem).isBook);
+
   const selectedBook: BookItem | null = selectedBookId
-    ? (state.bookshelf.find((b) => b.id === selectedBookId) ?? null)
+    ? (books.find((b) => b.id === selectedBookId) ?? null)
     : null;
 
   const selectedGear: GearItem | null = selectedGearId
-    ? state.stash.find((g) => g.id === selectedGearId) ?? null
+    ? gearItems.find((g) => g.id === selectedGearId) ?? null
     : null;
 
   function handlePlace() {
@@ -53,22 +57,22 @@ export default function BookshelfTab({ state, actions }: Props) {
 
       {/* Header */}
       <div style={{ background: "rgba(136,68,255,0.06)", border: "1px solid #4422aa", borderRadius: 4, padding: "8px 12px" }}>
-        <div style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 9, color: "#bb88ff", marginBottom: 4 }}>📚 BOOKSHELF</div>
+        <div style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 9, color: "#bb88ff", marginBottom: 4 }}>📚 BOOKS</div>
         <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#888" }}>
-          {state.bookshelf.length}/20 books · Place enchanted books onto stash gear to add their stat.
+          {books.length} book{books.length !== 1 ? "s" : ""} · Books are stored in your stash. Place enchanted books onto gear to add their stat.
         </div>
       </div>
 
-      {state.bookshelf.length === 0 ? (
+      {books.length === 0 ? (
         <div style={s.muted}>
-          No books on the shelf yet. Books drop from mini bosses (2% chance) or are created at the Enchanting Table after a Mega Boss.
+          No books yet. Books drop from mini bosses (2% chance) or are created at the Enchanting Table after defeating a Mega Boss (floor 100, 200, ...).
         </div>
       ) : (
         <>
           {/* Book list */}
           <div>
-            <div style={s.label}>BOOKS ON SHELF</div>
-            {state.bookshelf.map((book) => {
+            <div style={s.label}>BOOKS IN STASH</div>
+            {books.map((book) => {
               const isSelected = selectedBookId === book.id;
               return (
                 <div
@@ -79,11 +83,11 @@ export default function BookshelfTab({ state, actions }: Props) {
                     <span style={{ fontSize: 20 }}>📖</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontFamily: "'VT323', monospace", fontSize: 15, color: book.enchantment ? "#bb88ff" : "#888" }}>
-                        {book.enchantment ? `📖 ${book.enchantment} (base: ${book.baseValue})` : "📖 Blank Book"}
+                        {book.enchantment ? `${book.enchantment} (base: ${book.baseValue})` : "Blank Book"}
                       </div>
                       <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#555" }}>
                         {book.enchantment
-                          ? "Enchanted — place on any gear to add this stat at base value, then reroll to improve"
+                          ? "Place on any gear → adds stat at base value → reroll to improve"
                           : "Blank — use Enchanting Table to inscribe a stat"}
                       </div>
                     </div>
@@ -117,10 +121,10 @@ export default function BookshelfTab({ state, actions }: Props) {
                 Will add <strong style={{ color: "#bb88ff" }}>"{selectedBook.enchantment}"</strong> at base value ({selectedBook.baseValue}). Book is consumed.
               </div>
 
-              {state.stash.length === 0 ? (
+              {gearItems.length === 0 ? (
                 <div style={s.muted}>No gear in stash</div>
               ) : (
-                state.stash.map((gear) => {
+                gearItems.map((gear) => {
                   const isGearSelected = selectedGearId === gear.id;
                   return (
                     <div
@@ -162,7 +166,7 @@ export default function BookshelfTab({ state, actions }: Props) {
       {/* Info footer */}
       <div style={{ background: "rgba(0,0,0,0.3)", border: "1px solid #1a1a2a", borderRadius: 4, padding: "8px 12px" }}>
         <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#555", lineHeight: 1.5 }}>
-          💡 After placing a book, the stat starts at base value (lowest roll). Use the Vendor Reroll or Craft Reroll to improve it. Books cannot be stacked or sold.
+          💡 After placing a book, the stat starts at base value (lowest roll). Use Vendor Reroll or Craft Reroll to improve it. Books cannot be stacked or sold.
         </div>
       </div>
     </div>

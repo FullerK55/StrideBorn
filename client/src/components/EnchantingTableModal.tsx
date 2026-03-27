@@ -1,10 +1,10 @@
 // EnchantingTableModal — appears after choosing Enchanting Table from Mega Boss reward
 // Lets player strip one stat from a stash gear piece and inscribe it onto a book
-// The book lands on the bookshelf at base
+// The book is added to the stash (stash is unlimited)
 // Design: mystical purple/blue aesthetic, pixel font
 
 import { useState } from "react";
-import type { GameState, GameActions, GearItem } from "@/hooks/useGameState";
+import type { GameState, GameActions, GearItem, BookItem } from "@/hooks/useGameState";
 import { RARITY_COLORS, RARITY_LABELS, TIER_LABELS, TIER_COLORS } from "@/hooks/useGameState";
 
 interface Props {
@@ -22,8 +22,12 @@ export default function EnchantingTableModal({ state, actions }: Props) {
   const [selectedStatIdx, setSelectedStatIdx] = useState<number | null>(null);
   const [confirm, setConfirm] = useState(false);
 
+  // Only show real gear (not books) for stripping
+  const gearItems = state.stash.filter((g) => !(g as unknown as BookItem).isBook);
+  const booksInStash = state.stash.filter((g) => (g as unknown as BookItem).isBook).length;
+
   const selectedGear: GearItem | null = selectedGearId
-    ? state.stash.find((g) => g.id === selectedGearId) ?? null
+    ? gearItems.find((g) => g.id === selectedGearId) ?? null
     : null;
 
   const canAfford = state.gold >= STRIP_COST;
@@ -62,20 +66,14 @@ export default function EnchantingTableModal({ state, actions }: Props) {
           {/* Info banner */}
           <div style={{ background: "rgba(136,68,255,0.08)", border: "1px solid #4422aa", borderRadius: 4, padding: "8px 12px", marginBottom: 12 }}>
             <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#9966dd", lineHeight: 1.5 }}>
-              Select a stash gear piece, then pick one stat to strip. The stat is removed from the gear and written onto a book on your bookshelf at base value. Cost: <span style={{ color: "#ffcc44" }}>{STRIP_COST}g</span> per strip.
+              Select a stash gear piece, then pick one stat to strip. The stat is removed from the gear and written onto a book added to your stash. Cost: <span style={{ color: "#ffcc44" }}>{STRIP_COST}g</span> per strip.
             </div>
           </div>
 
-          {/* Bookshelf status */}
+          {/* Book count */}
           <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#666", marginBottom: 10 }}>
-            📚 Bookshelf: {state.bookshelf.length}/20 books
+            📚 Books in stash: {booksInStash}
           </div>
-
-          {state.bookshelf.length >= 20 && (
-            <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ff6644", marginBottom: 10 }}>
-              ⚠ Bookshelf is full! Discard a book at base first.
-            </div>
-          )}
 
           {!canAfford && (
             <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ff6644", marginBottom: 10 }}>
@@ -87,10 +85,10 @@ export default function EnchantingTableModal({ state, actions }: Props) {
           {!selectedGear ? (
             <div>
               <div style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 8, color: "#8844ff", marginBottom: 8 }}>STEP 1 — PICK GEAR FROM STASH</div>
-              {state.stash.length === 0 ? (
+              {gearItems.length === 0 ? (
                 <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#555" }}>No gear in stash</div>
               ) : (
-                state.stash.map((gear) => (
+                gearItems.map((gear) => (
                   <div
                     key={gear.id}
                     onClick={() => { setSelectedGearId(gear.id); setSelectedStatIdx(null); setConfirm(false); }}
@@ -148,10 +146,10 @@ export default function EnchantingTableModal({ state, actions }: Props) {
               {selectedStatIdx !== null && (
                 <div style={{ marginTop: 12, padding: "10px 12px", background: "rgba(136,68,255,0.06)", border: "1px solid #4422aa", borderRadius: 4 }}>
                   <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#bb88ff", marginBottom: 8 }}>
-                    Strip <strong style={{ color: "#fff" }}>"{selectedGear.stats[selectedStatIdx]?.stat}"</strong> → book on bookshelf
+                    Strip <strong style={{ color: "#fff" }}>"{selectedGear.stats[selectedStatIdx]?.stat}"</strong> → book added to stash
                   </div>
                   <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#888", marginBottom: 10 }}>
-                    Book will have base value (lowest roll). Reroll at vendor or craft table to improve it after placing on gear.
+                    Book will have base value (lowest roll). Place on gear via the Books tab, then reroll to improve.
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: canAfford ? "#ffcc44" : "#ff4444" }}>
@@ -159,8 +157,8 @@ export default function EnchantingTableModal({ state, actions }: Props) {
                     </div>
                     <button
                       onClick={handleStrip}
-                      disabled={!canStrip || state.bookshelf.length >= 20}
-                      style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 8, padding: "7px 12px", background: canStrip && state.bookshelf.length < 20 ? "#0a0020" : "#1a1a1a", color: canStrip && state.bookshelf.length < 20 ? (confirm ? "#ff4444" : "#8844ff") : "#555", border: `1px solid ${canStrip && state.bookshelf.length < 20 ? (confirm ? "#ff4444" : "#8844ff") : "#333"}`, borderRadius: 3, cursor: canStrip && state.bookshelf.length < 20 ? "pointer" : "not-allowed" }}
+                      disabled={!canStrip}
+                      style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 8, padding: "7px 12px", background: canStrip ? "#0a0020" : "#1a1a1a", color: canStrip ? (confirm ? "#ff4444" : "#8844ff") : "#555", border: `1px solid ${canStrip ? (confirm ? "#ff4444" : "#8844ff") : "#333"}`, borderRadius: 3, cursor: canStrip ? "pointer" : "not-allowed" }}
                     >
                       {confirm ? "⚠ CONFIRM?" : `🔮 STRIP (-${STRIP_COST}g)`}
                     </button>

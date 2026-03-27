@@ -258,6 +258,26 @@ export default function Home() {
             </span>
           </div>
 
+          {/* Portal return button — shown at base when portal has been used to base but return not yet taken */}
+          {state.portal && state.portal.usedToBase && !state.portal.usedReturn && !isActive && (
+            <button
+              onClick={actions.usePortalReturn}
+              style={{
+                width: "100%",
+                background: "rgba(0,255,200,0.06)",
+                border: "2px solid #00ffcc",
+                color: "#00ffcc",
+                fontFamily: "'Press Start 2P', monospace",
+                fontSize: 8,
+                padding: "10px",
+                cursor: "pointer",
+                letterSpacing: 1,
+                marginBottom: 6,
+              }}
+            >
+              🌀 PORTAL RETURN — FLOOR {state.portal.floor}
+            </button>
+          )}
           {/* Action buttons */}
           <div style={{ display: "flex", gap: 8 }}>
             {!isActive ? (
@@ -296,6 +316,26 @@ export default function Home() {
               </div>
             )}
 
+            {/* Portal to base button — only when portal is active and not yet used */}
+            {state.portal && !state.portal.usedToBase && state.isInDungeon && !state.isReturning && (
+              <button
+                onClick={actions.usePortalToBase}
+                style={{
+                  flex: 1,
+                  background: "rgba(0,255,200,0.06)",
+                  border: "2px solid #00ffcc",
+                  color: "#00ffcc",
+                  fontFamily: "'Press Start 2P', monospace",
+                  fontSize: 7,
+                  padding: "8px 4px",
+                  cursor: "pointer",
+                  letterSpacing: 0.5,
+                  animation: "pulse 1.5s infinite",
+                }}
+              >
+                🌀 PORTAL
+              </button>
+            )}
             {/* Return to base */}
             <button
               onClick={actions.startReturn}
