@@ -474,6 +474,7 @@ export interface GameState {
   activeEnchantingTable: ActiveEnchantingTable | null;
   portal: { floor: number; usedToBase: boolean; usedReturn: boolean } | null;
   lastRerollResult: { gearId: string; statIdx: number; oldValue: number; newValue: number }[] | null;
+  bookDropPity: number; // consecutive mini boss misses, resets to 0 on drop
 }
 
 export interface OfflineSummary {
@@ -970,6 +971,7 @@ function buildInitialState(
     activeEnchantingTable: null,
     portal: null,
     lastRerollResult: null,
+    bookDropPity: profile.bookDropPity ?? 0,
   };
 }
 
@@ -1097,6 +1099,7 @@ export function useGameState(
         lives: s.lives,
         gold: s.gold,
         quests: s.quests,
+        bookDropPity: s.bookDropPity,
         ...offlineData,
       });
       setLastSaved(Date.now());
@@ -1122,10 +1125,12 @@ export function useGameState(
       runes: s.runes,
       runs: s.runs,
       lives: s.lives,
-      gold: s.gold,
-      quests: s.quests,
-      ...offlineData,
-    });
+        gold: s.gold,
+        quests: s.quests,
+        bookDropPity: s.bookDropPity,
+        ...offlineData,
+      });
+
     setLastSaved(Date.now());
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.deepestFloor, state.stash, state.runs, state.isInDungeon, state.currentFloor, state.equippedGear, state.materials, state.bag, state.gold]);
@@ -1248,15 +1253,17 @@ export function useGameState(
         } else {
           showNotif(`💀 BOSS FLOOR ${floor}!`);
           addLog(`💀 Mini boss on floor ${floor}!`, "log-red");
-          // 2% chance to drop a blank book (added to bag)
-          if (Math.random() < 0.02) {
-            setState((prev) => {
+          // Pity-based book drop: 2% base + 1% per consecutive miss, resets on drop
+          setState((prev) => {
+            const dropChance = 0.02 + prev.bookDropPity * 0.01;
+            if (Math.random() < dropChance) {
+              // Book dropped — reset pity
               const emptySlot = prev.bag.findIndex((s) => s === null);
               if (emptySlot === -1) {
                 addLog("📖 Book dropped but bag is full!", "log-muted");
-                return prev;
+                // Still reset pity even if bag is full
+                return { ...prev, bookDropPity: 0 };
               }
-              // 20% chance the book is pre-enchanted with a random stat
               const preEnchanted = Math.random() < 0.2;
               const book: BookItem = {
                 id: `book_${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -1269,10 +1276,13 @@ export function useGameState(
               };
               const newBag = [...prev.bag];
               newBag[emptySlot] = book as unknown as BagItem;
-              addLog(preEnchanted ? `📖 Pre-enchanted book dropped! (${book.enchantment})` : "📖 Blank book dropped!", "log-gem");
-              return { ...prev, bag: newBag };
-            });
-          }
+              addLog(preEnchanted ? `📖 Pre-enchanted book dropped! (${book.enchantment}) [${Math.round(dropChance * 100)}% chance]` : `📖 Blank book dropped! [${Math.round(dropChance * 100)}% chance]`, "log-gem");
+              return { ...prev, bag: newBag, bookDropPity: 0 };
+            } else {
+              // No drop — increment pity
+              return { ...prev, bookDropPity: prev.bookDropPity + 1 };
+            }
+          });
         }
       }
 

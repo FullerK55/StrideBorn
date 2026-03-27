@@ -28,6 +28,7 @@ export interface Profile {
   gold: number;
   quests: unknown; // Quest[]
   bookshelf: unknown[]; // BookItem[]
+  bookDropPity: number;  // pity counter for mini boss book drops
   // Offline progress tracking
   offlineTimestamp: number | null;
   offlineFloor: number | null;
@@ -56,6 +57,7 @@ function loadProfiles(): Profile[] {
       gold: (p.gold as number | undefined) ?? 0,
       quests: Array.isArray(p.quests) ? p.quests : [],
       bookshelf: Array.isArray(p.bookshelf) ? p.bookshelf : [],
+      bookDropPity: typeof p.bookDropPity === 'number' ? p.bookDropPity : 0,
       stash: Array.isArray(p.stash) ? p.stash : [],
       runs: p.runs ?? 0,
       lives: p.lives ?? 1,
@@ -101,6 +103,7 @@ function createProfile(name: string, avatar: string): Profile {
     gold: 0,
     quests: [],
     bookshelf: [],
+    bookDropPity: 0,
     offlineTimestamp: null,
     offlineFloor: null,
     offlineDungeon: null,
