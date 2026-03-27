@@ -91,6 +91,8 @@ export default function EnhanceTab({ state, actions }: Props) {
   // Enhancement XP pool: how much to spend from the global pool
   const [poolSpend, setPoolSpend] = useState(0);
   const [confirmPending, setConfirmPending] = useState(false);
+  // Material filter chips (empty = show all)
+  const [matFilter, setMatFilter] = useState<MaterialType[]>([]);
 
   // Pool balance from global state
   const poolBalance = state.enhancementXpPool;
@@ -506,12 +508,67 @@ export default function EnhanceTab({ state, actions }: Props) {
 
           {/* Sacrifice Materials */}
           <div style={s.section}>
-            <div style={s.sectionTitle}>④ SACRIFICE MATERIALS</div>
-            <div style={{ ...s.muted, marginBottom: 8 }}>
-              Enter quantities to sacrifice. Each material grants XP.
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div style={s.sectionTitle}>④ SACRIFICE MATERIALS</div>
+              <button
+                onClick={() => {
+                  const next: Partial<Record<MaterialType, number>> = {};
+                  for (const t of matFilter.length > 0 ? matFilter : MATERIAL_TYPES) {
+                    const have = state.materials[t] ?? 0;
+                    if (have > 0) next[t] = have;
+                  }
+                  setMatQty(next);
+                }}
+                style={{ fontFamily: "'Press Start 2P', monospace", fontSize: 7, padding: "4px 8px", background: "#0a0800", color: "#ffaa00", border: "1px solid #ffaa00", borderRadius: 3, cursor: "pointer", whiteSpace: "nowrap" }}
+              >
+                MAX ALL
+              </button>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+
+            {/* Filter chips */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
               {MATERIAL_TYPES.map((type) => {
+                const info = MATERIAL_INFO[type];
+                const active = matFilter.includes(type);
+                const have = state.materials[type] ?? 0;
+                return (
+                  <button
+                    key={type}
+                    onClick={() => {
+                      setMatFilter((prev) =>
+                        prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
+                      );
+                    }}
+                    style={{
+                      fontFamily: "'VT323', monospace",
+                      fontSize: 13,
+                      padding: "3px 8px",
+                      background: active ? "rgba(170,136,255,0.15)" : "transparent",
+                      color: active ? "#aa88ff" : have > 0 ? "#666" : "#333",
+                      border: `1px solid ${active ? "#aa88ff" : "#333"}`,
+                      borderRadius: 3,
+                      cursor: "pointer",
+                      transition: "all 0.1s",
+                      opacity: have === 0 ? 0.4 : 1,
+                    }}
+                  >
+                    {info.emoji} {info.label}
+                    {have > 0 && <span style={{ color: "#555", marginLeft: 4 }}>({have})</span>}
+                  </button>
+                );
+              })}
+              {matFilter.length > 0 && (
+                <button
+                  onClick={() => setMatFilter([])}
+                  style={{ fontFamily: "'VT323', monospace", fontSize: 12, padding: "3px 7px", background: "transparent", color: "#555", border: "1px solid #333", borderRadius: 3, cursor: "pointer" }}
+                >
+                  ✕ clear
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {(matFilter.length > 0 ? matFilter : MATERIAL_TYPES).map((type: MaterialType) => {
                 const have = state.materials[type] ?? 0;
                 const qty = matQty[type] ?? 0;
                 const xp = calcMatXp(type, qty);
@@ -520,7 +577,7 @@ export default function EnhanceTab({ state, actions }: Props) {
                   <div key={type} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontSize: 18, flexShrink: 0 }}>{info.emoji}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ccc" }}>
+                      <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: have > 0 ? "#ccc" : "#444" }}>
                         {info.label}
                       </div>
                       <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#555" }}>
@@ -536,7 +593,7 @@ export default function EnhanceTab({ state, actions }: Props) {
                       onChange={(e) => setMat(type, e.target.value)}
                       disabled={have === 0}
                       style={{
-                        width: 60,
+                        width: 52,
                         background: "#0a0a1a",
                         border: `1px solid ${qty > 0 ? "#aa88ff" : "#333"}`,
                         color: qty > 0 ? "#aa88ff" : "#666",
@@ -547,8 +604,16 @@ export default function EnhanceTab({ state, actions }: Props) {
                         textAlign: "center",
                       }}
                     />
+                    {have > 0 && (
+                      <button
+                        onClick={() => setMat(type, String(have))}
+                        style={{ fontFamily: "'VT323', monospace", fontSize: 12, background: "none", border: `1px solid ${qty === have ? "#66ff88" : "#444"}`, color: qty === have ? "#66ff88" : "#666", padding: "3px 6px", cursor: "pointer", borderRadius: 3, flexShrink: 0 }}
+                      >
+                        MAX
+                      </button>
+                    )}
                     {qty > 0 && (
-                      <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#66ff88", minWidth: 55, textAlign: "right" }}>
+                      <div style={{ fontFamily: "'VT323', monospace", fontSize: 13, color: "#66ff88", minWidth: 50, textAlign: "right" }}>
                         +{xp} XP
                       </div>
                     )}
