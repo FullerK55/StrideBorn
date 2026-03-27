@@ -47,7 +47,7 @@ export default function EnchantingTableModal({ state, actions }: Props) {
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: "0 16px" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 210, padding: "0 16px" }}>
       <div style={{ background: "#050010", border: "2px solid #8844ff", borderRadius: 6, width: "100%", maxWidth: 440, maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 0 60px rgba(136,68,255,0.35)" }}>
 
         {/* Header */}

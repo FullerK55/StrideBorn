@@ -2078,7 +2078,7 @@ export function useGameState(
         addLog(`🔮 Enchanting Table unlocked on floor ${prev.activeMegaBoss.floor}!`, "log-gem");
         return {
           ...prev,
-          activeMegaBoss: { ...prev.activeMegaBoss, rewardChosen: true },
+          activeMegaBoss: null, // close the mega boss modal so enchanting table can render on top
           activeEnchantingTable: { floor: prev.activeMegaBoss.floor },
         };
       }
