@@ -208,6 +208,7 @@ function weightedRandom(table: LootItem[]): LootItem {
  */
 function calculateOfflineProgress(profile: Profile): {
   summary: OfflineSummary;
+  newBag: (LootItem | null)[];
   newStash: LootItem[];
   newTotalSteps: number;
   newDeepestFloor: number;
@@ -248,18 +249,19 @@ function calculateOfflineProgress(profile: Profile): {
     }
   }
 
-  // Cap loot at a reasonable amount (avoid overwhelming stash)
+  // Cap loot at a reasonable amount
   const cappedLoot = lootFound.slice(0, 40);
 
-  // Merge loot into existing stash
+  // Fill bag only — bag full means loot is lost, same as live play
+  const newBag: (LootItem | null)[] = Array(BAG_SIZE).fill(null);
   const newStash: LootItem[] = [...(profile.stash as LootItem[])];
+
   cappedLoot.forEach((item) => {
-    const existing = newStash.find((s) => s && s.name === item.name);
-    if (existing) {
-      existing.qty = (existing.qty || 1) + 1;
-    } else if (newStash.length < STASH_SIZE) {
-      newStash.push({ ...item, qty: 1 });
+    const emptyBagSlot = newBag.findIndex((slot) => slot === null);
+    if (emptyBagSlot !== -1) {
+      newBag[emptyBagSlot] = { ...item, qty: 1 };
     }
+    // Bag full — loot is lost, return to base to make room
   });
 
   const newTotalSteps = (profile.totalSteps ?? 0) + totalOfflineSteps;
@@ -276,13 +278,19 @@ function calculateOfflineProgress(profile: Profile): {
       deepestReached: endFloor,
       dungeon: dungeonId,
     },
+    newBag,
     newStash,
     newTotalSteps,
     newDeepestFloor,
   };
 }
 
-function buildInitialState(profile: Profile, resumeInDungeon = false, resumeFloor = 0): GameState {
+function buildInitialState(
+  profile: Profile,
+  resumeInDungeon = false,
+  resumeFloor = 0,
+  resumeBag: (LootItem | null)[] = []
+): GameState {
   const dungeons = DUNGEONS.map((d) => ({
     ...d,
     unlocked: (profile.deepestFloor ?? 0) >= d.unlockFloor || d.unlockFloor === 0,
@@ -299,7 +307,7 @@ function buildInitialState(profile: Profile, resumeInDungeon = false, resumeFloo
     isReturning: false,
     returnStepsNeeded: 0,
     returnStepsWalked: 0,
-    bag: [],
+    bag: resumeInDungeon && resumeBag.length > 0 ? resumeBag : Array(BAG_SIZE).fill(null),
     bagSize: BAG_SIZE,
     stash: (profile.stash as LootItem[]) ?? [],
     stashSize: STASH_SIZE,
@@ -350,7 +358,7 @@ export function useGameState(
         offlineFloor: null,
         offlineDungeon: null,
       };
-      return buildInitialState(updatedProfile, true, resumeFloor);
+      return buildInitialState(updatedProfile, true, resumeFloor, result.newBag);
     }
     // No offline progress — check if profile was in dungeon (e.g. very short absence < 5s)
     if (profile.offlineTimestamp && profile.offlineFloor !== null && profile.offlineDungeon) {
