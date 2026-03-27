@@ -72,7 +72,7 @@ export const DUNGEONS = [
 
 export type GearSlot = "helmet" | "gloves" | "chest" | "pants" | "boots" | "backpack" | "weapon" | "ring" | "amulet";
 export type GearRarity = "scrap" | "common" | "uncommon" | "rare" | "epic" | "legendary" | "mythic";
-export type GearTier = "iron" | "steel" | "shadow" | "void" | "celestial";
+export type GearTier = "iron" | "steel" | "shadow" | "void" | "celestial" | "obsidian" | "runic" | "spectral" | "primordial" | "eternal";
 export type MaterialType = "crude" | "refined" | "tempered" | "voidmat" | "celestialmat";
 
 export const GEAR_SLOTS: { id: GearSlot; label: string; emoji: string }[] = [
@@ -108,11 +108,75 @@ export const RARITY_LABELS: Record<GearRarity, string> = {
 };
 
 export const TIER_LABELS: Record<GearTier, string> = {
-  iron:      "Tier 1 Iron",
-  steel:     "Tier 2 Steel",
-  shadow:    "Tier 3 Shadow",
-  void:      "Tier 4 Void",
-  celestial: "Tier 5 Celestial",
+  iron:       "Tier 1 Iron",
+  steel:      "Tier 2 Steel",
+  shadow:     "Tier 3 Shadow",
+  void:       "Tier 4 Void",
+  celestial:  "Tier 5 Celestial",
+  obsidian:   "Tier 6 Obsidian",
+  runic:      "Tier 7 Runic",
+  spectral:   "Tier 8 Spectral",
+  primordial: "Tier 9 Primordial",
+  eternal:    "Tier 10 Eternal",
+};
+
+export const TIER_ORDER: GearTier[] = ["iron","steel","shadow","void","celestial","obsidian","runic","spectral","primordial","eternal"];
+
+export const TIER_COLORS: Record<GearTier, string> = {
+  iron:       "#a0a0a0",
+  steel:      "#88aacc",
+  shadow:     "#aa44ff",
+  void:       "#4444ff",
+  celestial:  "#ffcc00",
+  obsidian:   "#222222",
+  runic:      "#00ffaa",
+  spectral:   "#ff88ff",
+  primordial: "#ff6600",
+  eternal:    "#ffffff",
+};
+
+// Enhancement XP thresholds per tier upgrade (cost to go from tier N to N+1)
+export const ENHANCE_XP_THRESHOLDS: Partial<Record<GearTier, number>> = {
+  iron:       100,
+  steel:      250,
+  shadow:     600,
+  void:       1500,
+  celestial:  3500,
+  obsidian:   8000,
+  runic:      18000,
+  spectral:   40000,
+  primordial: 90000,
+  // eternal is max tier — no upgrade
+};
+
+// XP contributed by sacrificing a gear piece: tierLevel * rarityLevel * 10
+export const TIER_XP_VALUE: Record<GearTier, number> = {
+  iron:       1,
+  steel:      2,
+  shadow:     4,
+  void:       8,
+  celestial:  16,
+  obsidian:   32,
+  runic:      64,
+  spectral:   128,
+  primordial: 256,
+  eternal:    512,
+};
+export const RARITY_XP_VALUE: Record<GearRarity, number> = {
+  scrap:     1,
+  common:    2,
+  uncommon:  4,
+  rare:      8,
+  epic:      16,
+  legendary: 32,
+  mythic:    64,
+};
+export const MATERIAL_XP_VALUE: Record<MaterialType, number> = {
+  crude:        2,
+  refined:      5,
+  tempered:     12,
+  voidmat:      30,
+  celestialmat: 75,
 };
 
 export const MATERIAL_INFO: Record<MaterialType, { label: string; emoji: string }> = {
@@ -199,6 +263,7 @@ export interface GearItem {
   stats: { stat: string; value: number }[];
   sockets: number;      // max sockets
   runes: (string | null)[];  // rune ids in each socket
+  enhancementXp: number;    // XP accumulated toward next tier upgrade
   isGear: true;
 }
 
@@ -323,6 +388,7 @@ export interface GameActions {
   salvageGear: (gearId: string) => void;
   shopReroll: (gearId: string) => void;
   shopBuyBagSlot: () => void;
+  enhanceGear: (targetId: string, sacrificeGearIds: string[], sacrificeMaterials: Partial<Materials>) => void;
   log: LogEntry[];
   notification: string | null;
   lootPopups: LootPopup[];
@@ -418,7 +484,8 @@ function getStatCount(rarity: GearRarity): number {
 function rollStats(slot: GearSlot, rarity: GearRarity, tier: GearTier): { stat: string; value: number }[] {
   const pool = SLOT_STATS[slot];
   const count = getStatCount(rarity);
-  const tierMult = { iron: 1, steel: 1.5, shadow: 2.5, void: 4, celestial: 7 }[tier];
+  const tierMult: Record<GearTier, number> = { iron: 1, steel: 1.5, shadow: 2.5, void: 4, celestial: 7, obsidian: 11, runic: 17, spectral: 26, primordial: 40, eternal: 60 };
+  const tm = tierMult[tier];
   const rarityMult = { scrap: 0.5, common: 1, uncommon: 1.3, rare: 1.8, epic: 2.5, legendary: 3.5, mythic: 5 }[rarity];
   const chosen: string[] = [];
   const shuffled = [...pool].sort(() => Math.random() - 0.5);
@@ -427,25 +494,27 @@ function rollStats(slot: GearSlot, rarity: GearRarity, tier: GearTier): { stat: 
   }
   return chosen.map((stat) => ({
     stat,
-    value: Math.floor((5 + Math.random() * 15) * tierMult * rarityMult),
+    value: Math.floor((5 + Math.random() * 15) * tm * rarityMult),
   }));
 }
 
 let gearIdCounter = 0;
 function generateGearItem(slot: GearSlot, tier: GearTier, rarity: GearRarity): GearItem {
   const slotInfo = GEAR_SLOTS.find((s) => s.id === slot)!;
-  const tierLabel = { iron: "Iron", steel: "Steel", shadow: "Shadow", void: "Void", celestial: "Celestial" }[tier];
+  const tierLabel: Record<GearTier, string> = { iron: "Iron", steel: "Steel", shadow: "Shadow", void: "Void", celestial: "Celestial", obsidian: "Obsidian", runic: "Runic", spectral: "Spectral", primordial: "Primordial", eternal: "Eternal" };
+  const tLabel = tierLabel[tier];
   const sockets = getSocketCount(rarity);
   return {
     id: `gear_${Date.now()}_${gearIdCounter++}`,
     slot,
     tier,
     rarity,
-    name: `${tierLabel} ${slotInfo.label}`,
+    name: `${tLabel} ${slotInfo.label}`,
     emoji: slotInfo.emoji,
     stats: rollStats(slot, rarity, tier),
     sockets,
     runes: Array(sockets).fill(null),
+    enhancementXp: 0,
     isGear: true,
   };
 }
@@ -667,7 +736,7 @@ export function generateDailyQuests(): Quest[] {
 // ============================================================
 
 export function generateVendorItems(floor: number): VendorItem[] {
-  const tier = floor < 40 ? "iron" : floor < 80 ? "steel" : floor < 120 ? "shadow" : floor < 160 ? "void" : "celestial";
+  const tier: GearTier = floor < 40 ? "iron" : floor < 80 ? "steel" : floor < 120 ? "shadow" : floor < 160 ? "void" : "celestial";
   const items: VendorItem[] = [];
   // 1-2 random gear pieces
   const slots: GearSlot[] = ["helmet", "gloves", "chest", "pants", "boots", "backpack", "weapon", "ring", "amulet"];
@@ -697,7 +766,7 @@ export function generateVendorItems(floor: number): VendorItem[] {
 // ============================================================
 
 export function salvageYield(gear: GearItem, salvageYieldBonus: number): { type: MaterialType; qty: number }[] {
-  const tierMat: Record<GearTier, MaterialType> = { iron: "crude", steel: "refined", shadow: "tempered", void: "voidmat", celestial: "celestialmat" };
+  const tierMat: Record<GearTier, MaterialType> = { iron: "crude", steel: "refined", shadow: "tempered", void: "voidmat", celestial: "celestialmat", obsidian: "celestialmat", runic: "celestialmat", spectral: "celestialmat", primordial: "celestialmat", eternal: "celestialmat" };
   const rarityQty: Record<GearRarity, number> = { scrap: 1, common: 2, uncommon: 4, rare: 8, epic: 15, legendary: 25, mythic: 40 };
   const mat = tierMat[gear.tier];
   const qty = Math.round(rarityQty[gear.rarity] * (1 + salvageYieldBonus / 100));
@@ -1260,11 +1329,16 @@ export function useGameState(
       const gear = prev.stash.find((g) => g.id === gearId);
       if (!gear) return prev;
       const tierUp: Record<GearTier, { next: GearTier | null; cost: { type: MaterialType; qty: number; type2: MaterialType; qty2: number } }> = {
-        iron:      { next: "steel",     cost: { type: "crude",    qty: 50, type2: "refined",   qty2: 20 } },
-        steel:     { next: "shadow",    cost: { type: "refined",  qty: 40, type2: "tempered",  qty2: 15 } },
-        shadow:    { next: "void",      cost: { type: "tempered", qty: 30, type2: "voidmat",   qty2: 10 } },
-        void:      { next: "celestial", cost: { type: "voidmat",  qty: 20, type2: "celestialmat", qty2: 5 } },
-        celestial: { next: null, cost: { type: "celestialmat", qty: 0, type2: "celestialmat", qty2: 0 } },
+        iron:       { next: "steel",      cost: { type: "crude",        qty: 50,  type2: "refined",      qty2: 20 } },
+        steel:      { next: "shadow",     cost: { type: "refined",      qty: 40,  type2: "tempered",     qty2: 15 } },
+        shadow:     { next: "void",       cost: { type: "tempered",     qty: 30,  type2: "voidmat",      qty2: 10 } },
+        void:       { next: "celestial",  cost: { type: "voidmat",      qty: 20,  type2: "celestialmat", qty2: 5  } },
+        celestial:  { next: "obsidian",   cost: { type: "celestialmat", qty: 30,  type2: "celestialmat", qty2: 30 } },
+        obsidian:   { next: "runic",      cost: { type: "celestialmat", qty: 60,  type2: "celestialmat", qty2: 60 } },
+        runic:      { next: "spectral",   cost: { type: "celestialmat", qty: 120, type2: "celestialmat", qty2: 120 } },
+        spectral:   { next: "primordial", cost: { type: "celestialmat", qty: 250, type2: "celestialmat", qty2: 250 } },
+        primordial: { next: "eternal",    cost: { type: "celestialmat", qty: 500, type2: "celestialmat", qty2: 500 } },
+        eternal:    { next: null, cost: { type: "celestialmat", qty: 0, type2: "celestialmat", qty2: 0 } },
       };
       const upgrade = tierUp[gear.tier];
       if (!upgrade.next) { showNotif("ALREADY MAX TIER!"); return prev; }
@@ -1274,7 +1348,8 @@ export function useGameState(
       }
       const newTier = upgrade.next;
       const slotInfo = GEAR_SLOTS.find((s) => s.id === gear.slot)!;
-      const tierLabel = { iron: "Iron", steel: "Steel", shadow: "Shadow", void: "Void", celestial: "Celestial" }[newTier];
+      const tierLabelMap: Record<GearTier, string> = { iron: "Iron", steel: "Steel", shadow: "Shadow", void: "Void", celestial: "Celestial", obsidian: "Obsidian", runic: "Runic", spectral: "Spectral", primordial: "Primordial", eternal: "Eternal" };
+      const tierLabel = tierLabelMap[newTier];
       const newStash = prev.stash.map((g) => g.id === gearId ? {
         ...g, tier: newTier, name: `${tierLabel} ${slotInfo.label}`,
         stats: rollStats(g.slot, g.rarity, newTier),
@@ -1434,6 +1509,78 @@ export function useGameState(
     });
   }, [addLog, showNotif]);
 
+  // ---- Enhancement action (base only) ----
+  const enhanceGear = useCallback((targetId: string, sacrificeGearIds: string[], sacrificeMaterials: Partial<Materials>) => {
+    setState((prev) => {
+      if (prev.isInDungeon) { showNotif("RETURN TO BASE TO ENHANCE!"); return prev; }
+      const target = prev.stash.find((g) => g.id === targetId);
+      if (!target) return prev;
+      const threshold = ENHANCE_XP_THRESHOLDS[target.tier];
+      if (threshold === undefined) { showNotif("ALREADY MAX TIER!"); return prev; }
+
+      // Calculate XP from sacrificed gear
+      const sacrificeGear = sacrificeGearIds.map((id) => prev.stash.find((g) => g.id === id)).filter(Boolean) as GearItem[];
+      let xpGained = 0;
+      sacrificeGear.forEach((g) => {
+        xpGained += TIER_XP_VALUE[g.tier] * RARITY_XP_VALUE[g.rarity] * 10;
+      });
+
+      // Calculate XP from sacrificed materials
+      (Object.keys(sacrificeMaterials) as MaterialType[]).forEach((matType) => {
+        const qty = sacrificeMaterials[matType] ?? 0;
+        if (qty > 0 && (prev.materials[matType] ?? 0) >= qty) {
+          xpGained += MATERIAL_XP_VALUE[matType] * qty;
+        }
+      });
+
+      if (xpGained <= 0) { showNotif("SELECT ITEMS TO SACRIFICE!"); return prev; }
+
+      // Deduct sacrificed gear from stash
+      const sacrificeSet = new Set(sacrificeGearIds);
+      let newStash = prev.stash.filter((g) => g.id === targetId || !sacrificeSet.has(g.id));
+
+      // Deduct sacrificed materials
+      const newMats = { ...prev.materials };
+      (Object.keys(sacrificeMaterials) as MaterialType[]).forEach((matType) => {
+        const qty = sacrificeMaterials[matType] ?? 0;
+        if (qty > 0) newMats[matType] = Math.max(0, (newMats[matType] ?? 0) - qty);
+      });
+
+      // Apply XP to target and check for tier upgrade
+      const newXp = target.enhancementXp + xpGained;
+      const tierIdx = TIER_ORDER.indexOf(target.tier);
+      let finalTier = target.tier;
+      let finalXp = newXp;
+      let upgraded = false;
+
+      if (newXp >= threshold) {
+        // Upgrade tier
+        finalTier = TIER_ORDER[tierIdx + 1];
+        finalXp = newXp - threshold;
+        upgraded = true;
+      }
+
+      const tierLabelMap: Record<GearTier, string> = { iron: "Iron", steel: "Steel", shadow: "Shadow", void: "Void", celestial: "Celestial", obsidian: "Obsidian", runic: "Runic", spectral: "Spectral", primordial: "Primordial", eternal: "Eternal" };
+      const slotInfo = GEAR_SLOTS.find((s) => s.id === target.slot)!;
+      newStash = newStash.map((g) => g.id === targetId ? {
+        ...g,
+        tier: finalTier,
+        name: `${tierLabelMap[finalTier]} ${slotInfo.label}`,
+        stats: upgraded ? rollStats(g.slot, g.rarity, finalTier) : g.stats,
+        enhancementXp: finalXp,
+      } : g);
+
+      if (upgraded) {
+        addLog(`✨ Enhanced ${target.name} → ${TIER_LABELS[finalTier]}! (+${xpGained} XP)`, "log-gold");
+        showNotif(`TIER UP! ${TIER_LABELS[finalTier]}!`);
+      } else {
+        addLog(`⚡ Enhanced ${target.name}: +${xpGained} XP (${finalXp}/${threshold})`, "log-gem");
+      }
+
+      return { ...prev, stash: newStash, materials: newMats };
+    });
+  }, [addLog, showNotif]);
+
   const saveNow = useCallback(() => {
     const s = stateRef.current;
     const offlineData = s.isInDungeon && !s.isReturning
@@ -1484,6 +1631,7 @@ export function useGameState(
       salvageGear,
       shopReroll,
       shopBuyBagSlot,
+      enhanceGear,
       log,
       notification,
       lootPopups,

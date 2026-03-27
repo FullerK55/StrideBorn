@@ -16,8 +16,9 @@ import { MATERIAL_INFO, RARITY_LABELS, TIER_LABELS } from "@/hooks/useGameState"
 import VendorModal from "@/components/VendorModal";
 import ShopTab from "@/components/ShopTab";
 import QuestsTab from "@/components/QuestsTab";
+import EnhanceTab from "@/components/EnhanceTab";
 
-type Tab = "bag" | "stash" | "gear" | "materials" | "craft" | "shop" | "quests" | "dungeons" | "log";
+type Tab = "bag" | "stash" | "gear" | "materials" | "craft" | "enhance" | "shop" | "quests" | "dungeons" | "log";
 
 const TABS: { id: Tab; label: string; baseOnly?: boolean }[] = [
   { id: "bag", label: "BAG" },
@@ -25,6 +26,7 @@ const TABS: { id: Tab; label: string; baseOnly?: boolean }[] = [
   { id: "gear", label: "GEAR" },
   { id: "materials", label: "MATS", baseOnly: true },
   { id: "craft", label: "CRAFT", baseOnly: true },
+  { id: "enhance", label: "ENHANCE", baseOnly: true },
   { id: "shop", label: "SHOP", baseOnly: true },
   { id: "quests", label: "QUESTS" },
   { id: "dungeons", label: "MAP" },
@@ -529,6 +531,11 @@ export default function Home() {
           {/* CRAFT TAB */}
           {activeTab === "craft" && (
             <CraftTab state={state} actions={actions} />
+          )}
+
+          {/* ENHANCE TAB */}
+          {activeTab === "enhance" && (
+            <EnhanceTab state={state} actions={actions} />
           )}
 
           {/* SHOP TAB */}
