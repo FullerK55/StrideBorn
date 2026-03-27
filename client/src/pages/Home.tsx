@@ -7,6 +7,7 @@ import { useState } from "react";
 import { useGameState, DUNGEONS, RARITY_COLORS } from "@/hooks/useGameState";
 import { useProfile } from "@/contexts/ProfileContext";
 import DungeonScene from "@/components/DungeonScene";
+import SettingsOverlay from "@/components/SettingsOverlay";
 
 type Tab = "bag" | "stash" | "gear" | "dungeons" | "log";
 
@@ -14,6 +15,7 @@ export default function Home() {
   const { activeProfile, updateProfileSave, setSwitchingProfile } = useProfile();
   const [state, actions] = useGameState(activeProfile!, updateProfileSave);
   const [activeTab, setActiveTab] = useState<Tab>("bag");
+  const [showSettings, setShowSettings] = useState(false);
 
   const dungeon = state.dungeons.find((d) => d.id === state.currentDungeon) ?? state.dungeons[0];
   const isActive = state.isInDungeon || state.isReturning;
@@ -87,6 +89,9 @@ export default function Home() {
         paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
       }}>
 
+        {/* SETTINGS OVERLAY */}
+        {showSettings && <SettingsOverlay onClose={() => setShowSettings(false)} />}
+
         {/* HEADER */}
         <div style={{ textAlign: "center", padding: "12px 0 4px", position: "relative" }}>
           <div
@@ -133,12 +138,29 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Auto-save indicator */}
-          {actions.lastSaved && (
-            <div style={{ fontSize: 11, color: "rgba(68,255,136,0.4)", marginTop: 2 }}>
-              ● AUTO-SAVED
-            </div>
-          )}
+          {/* Settings button + Auto-save indicator row */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 4 }}>
+            {actions.lastSaved && (
+              <div style={{ fontSize: 11, color: "rgba(68,255,136,0.4)" }}>
+                ● AUTO-SAVED
+              </div>
+            )}
+            <button
+              onClick={() => setShowSettings(true)}
+              style={{
+                background: "none",
+                border: "1px solid var(--game-border)",
+                color: "var(--game-muted)",
+                fontFamily: "'Press Start 2P', monospace",
+                fontSize: 7,
+                padding: "4px 8px",
+                cursor: "pointer",
+                letterSpacing: 0.5,
+              }}
+            >
+              ⚙ SETTINGS
+            </button>
+          </div>
         </div>
 
         {/* STATS ROW */}
