@@ -1,14 +1,16 @@
 // Stride Born — Gear Tab
 // Shows 9 equipment slots. Tap a bag item (gear) to equip it.
 // Design: Retro pixel dungeon aesthetic — dark panels, gold accents
+// Nerd Mode: detail modal shows stat (min–max) ranges per tier/rarity
 
 import React, { useState } from "react";
 import type { GameState, GameActions, GearItem, GearSlot } from "@/hooks/useGameState";
-import { GEAR_SLOTS, RARITY_COLORS, RARITY_LABELS, TIER_LABELS } from "@/hooks/useGameState";
+import { GEAR_SLOTS, RARITY_COLORS, RARITY_LABELS, TIER_LABELS, statRange } from "@/hooks/useGameState";
 
 interface Props {
   state: GameState;
   actions: GameActions;
+  nerdMode?: boolean;
 }
 
 function GearCard({ gear, onClick, label }: { gear: GearItem | null; onClick?: () => void; label: string }) {
@@ -67,7 +69,7 @@ function GearCard({ gear, onClick, label }: { gear: GearItem | null; onClick?: (
   );
 }
 
-export default function GearTab({ state, actions }: Props) {
+export default function GearTab({ state, actions, nerdMode }: Props) {
   const [selectedBagIdx, setSelectedBagIdx] = useState<number | null>(null);
   const [detailGear, setDetailGear] = useState<GearItem | null>(null);
 
@@ -154,29 +156,52 @@ export default function GearTab({ state, actions }: Props) {
               {RARITY_LABELS[detailGear.rarity]} · {TIER_LABELS[detailGear.tier]}
             </div>
             <div style={{ borderTop: "1px solid #333", paddingTop: 10, marginBottom: 10 }}>
-              {detailGear.stats.map((s, i) => (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#88ff88", marginBottom: 4, fontFamily: "'VT323', monospace" }}>
-                  <span>{s.stat}</span>
-                  <span style={{ color: "#ffaa00" }}>+{s.value}</span>
-                </div>
-              ))}
+              {(() => {
+                const range = nerdMode ? statRange(detailGear.tier, detailGear.rarity) : null;
+                return detailGear.stats.map((s, i) => (
+                  <div key={i} style={{ marginBottom: 5, fontFamily: "'VT323', monospace" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#88ff88" }}>
+                      <span>
+                        {s.stat}
+                        {range && (
+                          <span style={{ color: "#556655", fontSize: 12, marginLeft: 6 }}>
+                            ({range.min}–{range.max})
+                          </span>
+                        )}
+                      </span>
+                      <span style={{ color: "#ffaa00" }}>+{s.value}</span>
+                    </div>
+                    {range && (
+                      <div style={{ marginTop: 2, height: 3, background: "#1a2a1a", borderRadius: 2, overflow: "hidden" }}>
+                        <div style={{
+                          height: "100%",
+                          width: `${range.max > range.min ? Math.round(((s.value - range.min) / (range.max - range.min)) * 100) : 100}%`,
+                          background: (() => {
+                            const pct = range.max > range.min ? (s.value - range.min) / (range.max - range.min) : 1;
+                            return pct >= 0.8 ? "#44ff88" : pct >= 0.5 ? "#ffcc44" : "#ff6644";
+                          })(),
+                          borderRadius: 2,
+                          transition: "width 0.3s",
+                        }} />
+                      </div>
+                    )}
+                  </div>
+                ));
+              })()}
             </div>
             {detailGear.sockets > 0 && (
               <div style={{ borderTop: "1px solid #333", paddingTop: 8, marginBottom: 10 }}>
                 <div style={{ fontSize: 9, color: "#aa88ff", marginBottom: 4 }}>SOCKETS</div>
                 <div style={{ display: "flex", gap: 6 }}>
-                  {detailGear.runes.map((r, i) => {
-                    const rune = r ? { emoji: r.split("_")[0] } : null;
-                    return (
-                      <div key={i} style={{
-                        width: 32, height: 32, border: "1px solid #aa88ff",
-                        borderRadius: 4, display: "flex", alignItems: "center",
-                        justifyContent: "center", fontSize: 16, background: "#1a1a2e",
-                      }}>
-                        {r ? "🔮" : "○"}
-                      </div>
-                    );
-                  })}
+                  {detailGear.runes.map((r, i) => (
+                    <div key={i} style={{
+                      width: 32, height: 32, border: "1px solid #aa88ff",
+                      borderRadius: 4, display: "flex", alignItems: "center",
+                      justifyContent: "center", fontSize: 16, background: "#1a1a2e",
+                    }}>
+                      {r ? "🔮" : "○"}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

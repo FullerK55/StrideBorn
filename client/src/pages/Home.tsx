@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useGameState, DUNGEONS, RARITY_COLORS } from "@/hooks/useGameState";
 import { useProfile } from "@/contexts/ProfileContext";
 import DungeonScene from "@/components/DungeonScene";
-import SettingsOverlay from "@/components/SettingsOverlay";
+import SettingsOverlay, { loadNerdMode } from "@/components/SettingsOverlay";
 import OfflineSummary from "@/components/OfflineSummary";
 import GearTab from "@/components/GearTab";
 import MaterialsTab from "@/components/MaterialsTab";
@@ -44,6 +44,7 @@ export default function Home() {
   const [state, actions] = useGameState(activeProfile!, updateProfileSave);
   const [activeTab, setActiveTab] = useState<Tab>("bag");
   const [showSettings, setShowSettings] = useState(false);
+  const [nerdMode, setNerdMode] = useState<boolean>(() => loadNerdMode());
 
   const isActive = state.isInDungeon || state.isReturning;
 
@@ -117,7 +118,7 @@ export default function Home() {
       }}>
 
         {/* SETTINGS OVERLAY */}
-        {showSettings && <SettingsOverlay onClose={() => setShowSettings(false)} onSaveNow={actions.saveNow} state={state} />}
+        {showSettings && <SettingsOverlay onClose={() => setShowSettings(false)} onSaveNow={actions.saveNow} state={state} nerdMode={nerdMode} onNerdModeChange={setNerdMode} />}
 
         {/* Vendor Modal — auto-pauses walking */}
         <VendorModal state={state} actions={actions} />
@@ -548,7 +549,7 @@ export default function Home() {
 
           {/* GEAR TAB */}
           {activeTab === "gear" && (
-            <GearTab state={state} actions={actions} />
+            <GearTab state={state} actions={actions} nerdMode={nerdMode} />
           )}
 
           {/* MATERIALS TAB */}

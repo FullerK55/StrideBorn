@@ -1,11 +1,23 @@
 // ============================================================
 // Stride Born — Settings Overlay
 // Design: Neo-Retro Pixel RPG — slides up from bottom as a panel
-// Sections: Account (sign out), future settings placeholders
+// Sections: Account, Combat Record, Game (Nerd Mode toggle)
+// Nerd Mode: shows stat min/max ranges on gear, book drop % in Combat Record
 // ============================================================
 
+import { useState } from "react";
 import { useProfile } from "@/contexts/ProfileContext";
 import type { GameState } from "@/hooks/useGameState";
+
+const NERD_MODE_KEY = "strideborn_nerd_mode";
+
+export function loadNerdMode(): boolean {
+  return localStorage.getItem(NERD_MODE_KEY) === "true";
+}
+
+function saveNerdMode(v: boolean) {
+  localStorage.setItem(NERD_MODE_KEY, v ? "true" : "false");
+}
 
 function fmtNum(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
@@ -17,9 +29,11 @@ interface SettingsOverlayProps {
   onClose: () => void;
   onSaveNow: () => void;
   state?: GameState;
+  nerdMode: boolean;
+  onNerdModeChange: (v: boolean) => void;
 }
 
-export default function SettingsOverlay({ onClose, onSaveNow, state }: SettingsOverlayProps) {
+export default function SettingsOverlay({ onClose, onSaveNow, state, nerdMode, onNerdModeChange }: SettingsOverlayProps) {
   const { activeProfile, setSwitchingProfile } = useProfile();
 
   function handleSignOut() {
@@ -27,6 +41,15 @@ export default function SettingsOverlay({ onClose, onSaveNow, state }: SettingsO
     setSwitchingProfile(true);
     onClose();
   }
+
+  function toggleNerdMode() {
+    const next = !nerdMode;
+    saveNerdMode(next);
+    onNerdModeChange(next);
+  }
+
+  // Book drop % = 2% base + 1% per consecutive miss
+  const bookDropPct = state ? (2 + (state.bookDropPity ?? 0)) : null;
 
   return (
     <>
@@ -199,13 +222,40 @@ export default function SettingsOverlay({ onClose, onSaveNow, state }: SettingsO
                 </div>
               ))}
             </div>
+
+            {/* Nerd Mode: book drop % */}
+            {nerdMode && bookDropPct !== null && (
+              <div style={{
+                marginTop: 10,
+                background: "#0a0a1a",
+                border: "1px solid #2a3a2a",
+                padding: "8px 10px",
+                borderRadius: 3,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+              }}>
+                <span style={{ fontSize: 18 }}>📖</span>
+                <div style={{ flex: 1 }}>
+                  <div className="pixel-font" style={{ fontSize: 9, color: "#66ff88", marginBottom: 2 }}>
+                    {bookDropPct}% book drop
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--game-muted)" }}>
+                    Next mini boss · {state.bookDropPity} miss{state.bookDropPity !== 1 ? "es" : ""} since last drop
+                  </div>
+                </div>
+                <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#444", textAlign: "right" }}>
+                  base 2%<br />+1%/miss
+                </div>
+              </div>
+            )}
           </div>
         )}
 
         {/* DIVIDER */}
         <div style={{ height: 1, background: "var(--game-border)", margin: "0 16px" }} />
 
-        {/* GAME SECTION (placeholder) */}
+        {/* GAME SECTION */}
         <div style={{ padding: "14px 16px" }}>
           <div className="pixel-font" style={{
             fontSize: 8,
@@ -220,11 +270,42 @@ export default function SettingsOverlay({ onClose, onSaveNow, state }: SettingsO
             <span style={{ flex: 1, height: 1, background: "var(--game-border)", display: "block" }} />
           </div>
 
-          <div style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-          }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {/* Nerd Mode — functional toggle */}
+            <div
+              onClick={toggleNerdMode}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "10px 12px",
+                borderBottom: "1px solid rgba(58,58,106,0.3)",
+                cursor: "pointer",
+                background: nerdMode ? "rgba(102,255,136,0.04)" : "transparent",
+                border: `1px solid ${nerdMode ? "rgba(102,255,136,0.2)" : "rgba(58,58,106,0.3)"}`,
+                borderRadius: 4,
+                transition: "background 0.15s",
+              }}
+            >
+              <div>
+                <span style={{ fontSize: 15, color: "var(--game-text)" }}>🤓 Nerd Mode</span>
+                <div style={{ fontSize: 12, color: "var(--game-muted)", marginTop: 2 }}>
+                  Shows stat ranges on gear · book drop % in record
+                </div>
+              </div>
+              <span className="pixel-font" style={{
+                fontSize: 8,
+                color: nerdMode ? "var(--green)" : "var(--game-muted)",
+                border: `1px solid ${nerdMode ? "var(--green)" : "var(--game-border)"}`,
+                padding: "3px 6px",
+                flexShrink: 0,
+                marginLeft: 10,
+              }}>
+                {nerdMode ? "ON" : "OFF"}
+              </span>
+            </div>
+
+            {/* Placeholder settings */}
             {[
               { label: "Sound Effects", value: "OFF", note: "coming soon" },
               { label: "Animations", value: "ON", note: "" },
