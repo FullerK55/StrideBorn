@@ -91,7 +91,7 @@ export default function Home() {
       }}>
 
         {/* SETTINGS OVERLAY */}
-        {showSettings && <SettingsOverlay onClose={() => setShowSettings(false)} />}
+        {showSettings && <SettingsOverlay onClose={() => setShowSettings(false)} onSaveNow={actions.saveNow} />}
 
         {/* OFFLINE SUMMARY MODAL */}
         {actions.offlineSummary && (
@@ -130,7 +130,7 @@ export default function Home() {
               {activeProfile?.avatar} {activeProfile?.name}
             </span>
             <button
-              onClick={() => setSwitchingProfile(true)}
+              onClick={() => { actions.saveNow(); setSwitchingProfile(true); }}
               className="pixel-font"
               style={{
                 background: "none",

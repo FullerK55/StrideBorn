@@ -8,12 +8,14 @@ import { useProfile } from "@/contexts/ProfileContext";
 
 interface SettingsOverlayProps {
   onClose: () => void;
+  onSaveNow: () => void;
 }
 
-export default function SettingsOverlay({ onClose }: SettingsOverlayProps) {
+export default function SettingsOverlay({ onClose, onSaveNow }: SettingsOverlayProps) {
   const { activeProfile, setSwitchingProfile } = useProfile();
 
   function handleSignOut() {
+    onSaveNow();
     setSwitchingProfile(true);
     onClose();
   }

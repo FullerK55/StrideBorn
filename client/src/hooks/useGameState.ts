@@ -179,6 +179,7 @@ export interface GameActions {
   lastSaved: number | null;
   offlineSummary: OfflineSummary | null;
   clearOfflineSummary: () => void;
+  saveNow: () => void;
 }
 
 export interface LootPopup {
@@ -693,6 +694,32 @@ export function useGameState(
     setOfflineSummary(null);
   }, []);
 
+  // Immediate synchronous save — call before profile switch so offline state is persisted
+  const saveNow = useCallback(() => {
+    const s = stateRef.current;
+    const offlineData = s.isInDungeon && !s.isReturning
+      ? {
+          offlineTimestamp: Date.now(),
+          offlineFloor: s.currentFloor,
+          offlineDungeon: s.currentDungeon,
+        }
+      : {
+          offlineTimestamp: null,
+          offlineFloor: null,
+          offlineDungeon: null,
+        };
+    onSaveRef.current({
+      totalSteps: s.totalSteps,
+      deepestFloor: s.deepestFloor,
+      currentDungeon: s.currentDungeon,
+      stash: s.stash,
+      runs: s.runs,
+      lives: s.lives,
+      ...offlineData,
+    });
+    setLastSaved(Date.now());
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -715,6 +742,7 @@ export function useGameState(
       lastSaved,
       offlineSummary,
       clearOfflineSummary,
+      saveNow,
     },
   ];
 }
