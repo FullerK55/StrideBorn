@@ -306,19 +306,41 @@ export interface Quest {
 // Vendor types
 export interface VendorItem {
   id: string;
-  type: "gear" | "material" | "reroll" | "socket";
+  type: "gear" | "material" | "reroll" | "socket" | "merge" | "fence";
   label: string;
   emoji: string;
   cost: number;
   gear?: GearItem;
   matType?: MaterialType;
   matQty?: number;
+  // fence: buy price offered for bag gear
+  fenceGearId?: string;
+  fencePrice?: number;
 }
 
 export interface ActiveVendor {
   floor: number;
   items: VendorItem[];
+  // track which one-time services have been used
+  rerollUsed: boolean;
+  mergeUsed: boolean;
 }
+
+// Vendor reroll cost formula: base * tierMult * rarityMult * statCount
+export const VENDOR_REROLL_BASE = 40;
+export const VENDOR_REROLL_TIER_MULT: Record<GearTier, number> = {
+  iron: 1, steel: 1.5, shadow: 2.5, void: 4, celestial: 7,
+  obsidian: 11, runic: 17, spectral: 26, primordial: 40, eternal: 60,
+};
+export const VENDOR_REROLL_RARITY_MULT: Record<GearRarity, number> = {
+  scrap: 0.5, common: 1, uncommon: 1.5, rare: 2.5, epic: 4, legendary: 7, mythic: 12,
+};
+// Material merge cost per unit merged (by type)
+export const VENDOR_MERGE_COST_PER_UNIT: Record<MaterialType, number> = {
+  crude: 3, refined: 8, tempered: 20, voidmat: 50, celestialmat: 120,
+};
+// Fence buy price: ~15% of normal sell value
+export const FENCE_SELL_MULT = 0.15;
 
 export interface Materials {
   crude: number;
@@ -384,6 +406,9 @@ export interface GameActions {
   acceptQuest: (questId: string) => void;
   turnInQuest: (questId: string) => void;
   buyFromVendor: (itemId: string) => void;
+  vendorReroll: (gearId: string, statIndices: number[]) => void;
+  vendorMergeMaterials: () => void;
+  vendorSellGear: (gearId: string) => void;
   dismissVendor: () => void;
   salvageGear: (gearId: string) => void;
   shopReroll: (gearId: string) => void;
@@ -1107,7 +1132,7 @@ export function useGameState(
           stopWalkInterval();
           showNotif(`🛒 VENDOR ON FLOOR ${floor}!`);
           addLog(`🛒 A wandering vendor appeared on floor ${floor}!`, "log-gold");
-          return { ...prev, activeVendor: { floor, items: vendorItems } };
+          return { ...prev, activeVendor: { floor, items: vendorItems, rerollUsed: false, mergeUsed: false } };
         }
         return prev;
       });
@@ -1460,6 +1485,100 @@ export function useGameState(
     });
   }, [addLog, showNotif]);
 
+  // ---- Vendor: selective stat reroll ----
+  const vendorReroll = useCallback((gearId: string, statIndices: number[]) => {
+    setState((prev) => {
+      if (!prev.activeVendor || prev.activeVendor.rerollUsed) { showNotif("REROLL ALREADY USED!"); return prev; }
+      // Find gear in bag or stash
+      const bagIdx = prev.bag.findIndex((b) => b && 'isGear' in b && (b as GearItem).id === gearId);
+      const stashIdx = prev.stash.findIndex((g) => g.id === gearId);
+      const gear: GearItem | null = bagIdx >= 0 ? (prev.bag[bagIdx] as GearItem) : stashIdx >= 0 ? prev.stash[stashIdx] : null;
+      if (!gear) return prev;
+      if (statIndices.length === 0) { showNotif("SELECT STATS TO REROLL!"); return prev; }
+      const cost = Math.ceil(
+        VENDOR_REROLL_BASE * VENDOR_REROLL_TIER_MULT[gear.tier] * VENDOR_REROLL_RARITY_MULT[gear.rarity] * statIndices.length
+      );
+      if (prev.gold < cost) { showNotif(`NEED ${cost}g!`); return prev; }
+      // Re-roll only selected stat indices
+      const tierMult: Record<GearTier, number> = { iron: 1, steel: 1.5, shadow: 2.5, void: 4, celestial: 7, obsidian: 11, runic: 17, spectral: 26, primordial: 40, eternal: 60 };
+      const rarityMult = { scrap: 0.5, common: 1, uncommon: 1.3, rare: 1.8, epic: 2.5, legendary: 3.5, mythic: 5 }[gear.rarity];
+      const tm = tierMult[gear.tier];
+      const newStats = gear.stats.map((s, i) =>
+        statIndices.includes(i)
+          ? { stat: s.stat, value: Math.floor((5 + Math.random() * 15) * tm * rarityMult) }
+          : s
+      );
+      const updatedGear = { ...gear, stats: newStats };
+      let newBag = prev.bag;
+      let newStash = prev.stash;
+      if (bagIdx >= 0) {
+        newBag = [...prev.bag];
+        newBag[bagIdx] = updatedGear;
+      } else {
+        newStash = prev.stash.map((g) => g.id === gearId ? updatedGear : g);
+      }
+      addLog(`🎲 Vendor rerolled ${statIndices.length} stat(s) on ${gear.name} (-${cost}g)`, "log-gold");
+      return { ...prev, gold: prev.gold - cost, bag: newBag, stash: newStash, activeVendor: { ...prev.activeVendor, rerollUsed: true } };
+    });
+  }, [addLog, showNotif]);
+
+  // ---- Vendor: merge material stacks in bag ----
+  const vendorMergeMaterials = useCallback(() => {
+    setState((prev) => {
+      if (!prev.activeVendor || prev.activeVendor.mergeUsed) { showNotif("MERGE ALREADY USED!"); return prev; }
+      const MERGE_CAP = 25;
+      // Collect all material slots in bag
+      const matSlots: { idx: number; item: MaterialItem }[] = [];
+      prev.bag.forEach((b, i) => { if (b && 'isMaterial' in b) matSlots.push({ idx: i, item: b as MaterialItem }); });
+      if (matSlots.length <= 1) { showNotif("NOTHING TO MERGE!"); return prev; }
+      // Group by type
+      const grouped: Partial<Record<MaterialType, number>> = {};
+      matSlots.forEach(({ item }) => { grouped[item.type] = (grouped[item.type] ?? 0) + item.qty; });
+      // Calculate cost: sum of (qty × costPerUnit) for each type
+      let totalCost = 0;
+      let totalMerged = 0;
+      (Object.keys(grouped) as MaterialType[]).forEach((t) => {
+        const qty = grouped[t]!;
+        totalCost += qty * VENDOR_MERGE_COST_PER_UNIT[t];
+        totalMerged += qty;
+      });
+      totalCost = Math.ceil(totalCost);
+      if (prev.gold < totalCost) { showNotif(`NEED ${totalCost}g TO MERGE!`); return prev; }
+      // Build new bag: remove all mat slots, then re-add merged stacks (capped at 25)
+      const newBag: (BagItem | null)[] = [...prev.bag];
+      matSlots.forEach(({ idx }) => { newBag[idx] = null; });
+      // Place merged stacks
+      (Object.keys(grouped) as MaterialType[]).forEach((t) => {
+        let remaining = grouped[t]!;
+        while (remaining > 0) {
+          const stackQty = Math.min(remaining, MERGE_CAP);
+          const emptySlot = newBag.findIndex((s) => s === null);
+          if (emptySlot === -1) break; // bag full — leave rest
+          newBag[emptySlot] = { type: t, qty: stackQty, isMaterial: true };
+          remaining -= stackQty;
+        }
+      });
+      addLog(`📦 Vendor merged ${totalMerged} material units into stacks of ${MERGE_CAP} (-${totalCost}g)`, "log-gold");
+      return { ...prev, gold: prev.gold - totalCost, bag: newBag, activeVendor: { ...prev.activeVendor, mergeUsed: true } };
+    });
+  }, [addLog, showNotif]);
+
+  // ---- Vendor: fence sells bag gear for gold (rip-off price) ----
+  const vendorSellGear = useCallback((gearId: string) => {
+    setState((prev) => {
+      if (!prev.activeVendor) return prev;
+      const bagIdx = prev.bag.findIndex((b) => b && 'isGear' in b && (b as GearItem).id === gearId);
+      if (bagIdx === -1) return prev;
+      const gear = prev.bag[bagIdx] as GearItem;
+      const baseCost = { scrap: 10, common: 30, uncommon: 60, rare: 120, epic: 250, legendary: 500, mythic: 1000 }[gear.rarity];
+      const fencePrice = Math.max(1, Math.floor((baseCost + gear.stats.length * 5) * FENCE_SELL_MULT));
+      const newBag = [...prev.bag];
+      newBag[bagIdx] = null;
+      addLog(`💸 Sold ${gear.name} to fence for ${fencePrice}g (rip-off!)`, "log-muted");
+      return { ...prev, gold: prev.gold + fencePrice, bag: newBag };
+    });
+  }, [addLog]);
+
   const dismissVendor = useCallback(() => {
     setState((prev) => ({ ...prev, activeVendor: null }));
     startWalkInterval();
@@ -1627,6 +1746,9 @@ export function useGameState(
       acceptQuest,
       turnInQuest,
       buyFromVendor,
+      vendorReroll,
+      vendorMergeMaterials,
+      vendorSellGear,
       dismissVendor,
       salvageGear,
       shopReroll,
