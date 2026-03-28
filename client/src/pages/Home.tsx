@@ -2,7 +2,7 @@
 // Design: Neo-Retro Pixel RPG — dark dungeon terminal, idle walking mechanic
 // Tabs: Bag | Stash | Gear | Materials | Craft | Dungeons | Log
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useGameState, DUNGEONS, RARITY_COLORS } from "@/hooks/useGameState";
 import { useProfile } from "@/contexts/ProfileContext";
 import DungeonScene from "@/components/DungeonScene";
@@ -13,7 +13,8 @@ import GearTab from "@/components/GearTab";
 import MaterialsTab from "@/components/MaterialsTab";
 import CraftTab from "@/components/CraftTab";
 import type { GearItem, MaterialItem } from "@/hooks/useGameState";
-import { MATERIAL_INFO, RARITY_LABELS, TIER_LABELS } from "@/hooks/useGameState";
+import { MATERIAL_INFO, RARITY_LABELS, TIER_LABELS, TIER_ORDER } from "@/hooks/useGameState";
+import type { GearRarity, GearTier, GearSlot } from "@/hooks/useGameState";
 import VendorModal from "@/components/VendorModal";
 import AnvilModal from "@/components/AnvilModal";
 import FenceModal from "@/components/FenceModal";
@@ -49,6 +50,35 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>("bag");
   const [showSettings, setShowSettings] = useState(false);
   const [nerdMode, setNerdMode] = useState<boolean>(() => loadNerdMode());
+  const [bagSortMode, setBagSortMode] = useState<"none"|"rarity"|"tier"|"slot">("none");
+
+  const RARITY_ORD: GearRarity[] = ["scrap","common","uncommon","rare","epic","legendary","mythic"];
+  const SLOT_ORD: GearSlot[] = ["helmet","chest","pants","gloves","boots","backpack","weapon","ring","amulet"];
+
+  const sortedBag = useMemo(() => {
+    if (bagSortMode === "none") return Array.from({ length: state.bagSize }, (_, i) => state.bag[i] ?? null);
+    const items = state.bag.filter((b): b is NonNullable<typeof b> => b !== null);
+    const nulls = Array.from({ length: state.bagSize - items.length }, () => null);
+    const sorted = [...items].sort((a, b) => {
+      if (bagSortMode === "rarity") {
+        const ai = 'isGear' in a ? RARITY_ORD.indexOf((a as GearItem).rarity) : -1;
+        const bi = 'isGear' in b ? RARITY_ORD.indexOf((b as GearItem).rarity) : -1;
+        return bi - ai; // highest rarity first
+      }
+      if (bagSortMode === "tier") {
+        const ai = 'isGear' in a ? TIER_ORDER.indexOf((a as GearItem).tier as GearTier) : -1;
+        const bi = 'isGear' in b ? TIER_ORDER.indexOf((b as GearItem).tier as GearTier) : -1;
+        return bi - ai; // highest tier first
+      }
+      if (bagSortMode === "slot") {
+        const ai = 'isGear' in a ? SLOT_ORD.indexOf((a as GearItem).slot as GearSlot) : 99;
+        const bi = 'isGear' in b ? SLOT_ORD.indexOf((b as GearItem).slot as GearSlot) : 99;
+        return ai - bi;
+      }
+      return 0;
+    });
+    return [...sorted, ...nulls];
+  }, [state.bag, state.bagSize, bagSortMode]);
 
   const isActive = state.isInDungeon || state.isReturning;
 
@@ -446,14 +476,26 @@ export default function Home() {
           {/* BAG TAB */}
           {activeTab === "bag" && (
             <div>
-              <div style={{ fontSize: 13, color: "var(--game-muted)", marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
+              <div style={{ fontSize: 13, color: "var(--game-muted)", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span>BAG ({bagUsed}/{state.bagSize} slots used)</span>
-                <span style={{ fontSize: 12 }}>tap item to drop</span>
+                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                  <span style={{ fontSize: 12 }}>tap item to drop</span>
+                  <button
+                    onClick={() => setBagSortMode(m => {
+                      const modes: Array<"none"|"rarity"|"tier"|"slot"> = ["none","rarity","tier","slot"];
+                      return modes[(modes.indexOf(m) + 1) % modes.length];
+                    })}
+                    title="Cycle sort: none → rarity → tier → slot"
+                    style={{ fontSize: 9, padding: "2px 6px", background: bagSortMode !== "none" ? "var(--gold)" : "#1a1a2e", color: bagSortMode !== "none" ? "#000" : "var(--game-muted)", border: "1px solid var(--game-border)", cursor: "pointer", fontFamily: "'Press Start 2P', monospace", letterSpacing: 0.5 }}
+                  >
+                    {bagSortMode === "none" ? "SORT" : bagSortMode === "rarity" ? "▼ RARITY" : bagSortMode === "tier" ? "▼ TIER" : "▼ SLOT"}
+                  </button>
+                </div>
               </div>
               <div style={{ overflowY: "auto", maxHeight: "calc(5 * ((min(480px, 100vw) - 56px) / 5) + 4 * 4px)", scrollbarWidth: "thin", scrollbarColor: "var(--game-border) transparent" }}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4 }}>
-                {Array.from({ length: state.bagSize }).map((_, i) => {
-                  const item = state.bag[i];
+                {sortedBag.map((item, i) => {
+                  const origIdx = bagSortMode === "none" ? i : state.bag.indexOf(item as any);
                   const isGear = item && 'isGear' in item && (item as GearItem).isGear;
                   const isMat = item && 'isMaterial' in item && (item as MaterialItem).isMaterial;
                   const borderColor = item
@@ -466,7 +508,7 @@ export default function Home() {
                   return (
                     <div
                       key={i}
-                      onClick={() => item && actions.dropBagItem(i)}
+                      onClick={() => item && actions.dropBagItem(bagSortMode === "none" ? i : origIdx)}
                       title={item ? `${isGear ? (item as GearItem).name : (item as MaterialItem).type}\nTap to drop` : "Empty"}
                       style={{
                         background: "#0a0a1a",
@@ -509,12 +551,13 @@ export default function Home() {
           {/* STASH TAB */}
           {activeTab === "stash" && (
             <div>
-              <div style={{ fontSize: 13, color: "var(--game-muted)", marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
+              <div style={{ fontSize: 13, color: "var(--game-muted)", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span>STASH ({state.stash.length} item{state.stash.length !== 1 ? 's' : ''} · unlimited)</span>
                 <span style={{ color: "var(--green)", fontSize: 12 }}>
                   {state.currentFloor === 0 ? "✓ AT BASE" : "return to access"}
                 </span>
               </div>
+              <div style={{ overflowY: "auto", maxHeight: "calc(5 * ((min(480px, 100vw) - 56px) / 6) + 4 * 3px)", scrollbarWidth: "thin", scrollbarColor: "var(--game-border) transparent" }}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 3 }}>
                 {state.stash.map((item, i) => (
                   <div
@@ -562,6 +605,7 @@ export default function Home() {
                     Stash is empty
                   </div>
                 )}
+              </div>
               </div>
               {!state.isInDungeon && !state.isReturning && state.stash.length > 0 && (
                 <div style={{ marginTop: 6, fontSize: 11, color: "#555", fontFamily: "'VT323', monospace" }}>
