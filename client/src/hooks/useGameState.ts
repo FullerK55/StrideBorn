@@ -27,6 +27,7 @@ export interface LeaveAloneAdvancedConfig {
   showMegaBossReward: boolean; // if true, pauses and shows reward popup; if false, skips silently
   autoEquipHigherGS: boolean;  // master toggle: auto-equip any bag GS item that beats the equipped slot's GS
   autoEquipGSSlots: GearSlot[]; // per-slot whitelist — only auto-equip for slots in this list (empty = all slots)
+  autoAdvanceDifficulty: boolean; // silently advance difficulty when max floor is reached, no popup
 }
 
 // ============================================================
@@ -1351,11 +1352,19 @@ export function useGameState(
         });
       }
 
-      // Difficulty max-floor check — fire unlock prompt when player reaches the cap
+      // Difficulty max-floor check — fire unlock prompt (or auto-advance if setting is on)
       setState((prev) => {
         const currentDiff: DungeonDifficulty = (prev.dungeonDifficulties[prev.currentDungeon] as DungeonDifficulty | undefined) ?? "easy";
         const cfg = DIFFICULTY_CONFIG[currentDiff];
         if (cfg.maxFloor !== null && floor >= cfg.maxFloor && cfg.next && !prev.pendingDifficultyUnlock) {
+          if (leaveAloneAdvancedRef.current?.autoAdvanceDifficulty) {
+            // Silent auto-advance — no popup, no walk pause
+            const nextDiff = cfg.next;
+            const newDiffs = { ...prev.dungeonDifficulties, [prev.currentDungeon]: nextDiff };
+            addLog(`🏆 Auto-advanced to ${DIFFICULTY_CONFIG[nextDiff].label} difficulty! (floor ${floor})`, "log-gem");
+            showNotif(`🏆 AUTO: ${DIFFICULTY_CONFIG[nextDiff].label.toUpperCase()} UNLOCKED!`);
+            return { ...prev, dungeonDifficulties: newDiffs, currentFloor: 0 };
+          }
           addLog(`🏆 You've cleared floor ${floor} on ${cfg.label}! You can now advance to ${DIFFICULTY_CONFIG[cfg.next].label}.`, "log-gem");
           showNotif(`🏆 ${cfg.label.toUpperCase()} CLEARED! Advance to ${DIFFICULTY_CONFIG[cfg.next].label}?`);
           stopWalkInterval();

@@ -23,6 +23,7 @@ const DEFAULT_LEAVE_ALONE_ADVANCED: LeaveAloneAdvancedConfig = {
   showMegaBossReward: false,
   autoEquipHigherGS: false,
   autoEquipGSSlots: [], // empty = all slots
+  autoAdvanceDifficulty: false,
 };
 
 export function loadLeaveAloneAdvanced(): LeaveAloneAdvancedConfig {
@@ -554,6 +555,17 @@ export default function SettingsOverlay({
               Fine-tune what interrupts you while Leave Me Alone Mode is active.
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <ToggleRow
+                label="🏆 Auto-Advance Difficulty"
+                note="When you hit the max floor of a difficulty tier, automatically advance to the next tier without pausing"
+                active={leaveAloneAdvanced.autoAdvanceDifficulty}
+                onClick={() => updateLAA({ autoAdvanceDifficulty: !leaveAloneAdvanced.autoAdvanceDifficulty })}
+              />
+              {leaveAloneAdvanced.autoAdvanceDifficulty && (
+                <div style={{ fontSize: 12, color: "var(--game-muted)", padding: "4px 12px", background: "rgba(100,255,100,0.06)", border: "1px solid rgba(100,255,100,0.2)", borderRadius: 4 }}>
+                  ✅ On reaching Easy floor 1000, Medium floor 2000, etc. the run silently resets to floor 1 on the next tier. Walk never pauses.
+                </div>
+              )}
               <ToggleRow
                 label="☠️ Show Mega Boss Reward"
                 note="Pauses run and shows reward popup on wave-100 boss floors so you can pick Portal / Enchanting Table"
