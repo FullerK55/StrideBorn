@@ -89,6 +89,21 @@ export const DUNGEONS = [
 ];
 
 // ============================================================
+// DUNGEON DIFFICULTY SYSTEM
+// ============================================================
+
+export type DungeonDifficulty = "easy" | "medium" | "hard" | "challenging" | "insane" | "endless";
+
+export const DIFFICULTY_CONFIG: Record<DungeonDifficulty, { label: string; color: string; maxFloor: number | null; bossCount: number; next: DungeonDifficulty | null }> = {
+  easy:        { label: "Easy",        color: "#44ff88", maxFloor: 1000,  bossCount: 1, next: "medium" },
+  medium:      { label: "Medium",      color: "#88ccff", maxFloor: 2000,  bossCount: 2, next: "hard" },
+  hard:        { label: "Hard",        color: "#ffaa00", maxFloor: 3000,  bossCount: 3, next: "challenging" },
+  challenging: { label: "Challenging", color: "#ff6600", maxFloor: 4000,  bossCount: 4, next: "insane" },
+  insane:      { label: "Insane",      color: "#ff4488", maxFloor: 5000,  bossCount: 5, next: "endless" },
+  endless:     { label: "Endless",     color: "#ffd700", maxFloor: null,  bossCount: 6, next: null },
+};
+
+// ============================================================
 // GEAR SYSTEM DATA
 // ============================================================
 
@@ -502,6 +517,8 @@ export interface GameState {
   bookDropPity: number; // consecutive mini boss misses, resets to 0 on drop
   bookVendorPity: number; // floors cleared after floor 200 without book vendor spawning
   enhancementXpPool: number; // global pool of Enhancement XP from Anvil breakdowns
+  dungeonDifficulties: Record<string, DungeonDifficulty>; // per-dungeon difficulty level
+  pendingDifficultyUnlock: { dungeonId: string; nextDifficulty: DungeonDifficulty } | null; // prompt to advance difficulty
 }
 
 export interface OfflineSummary {
@@ -560,6 +577,8 @@ export interface GameActions {
   offlineSummary: OfflineSummary | null;
   clearOfflineSummary: () => void;
   saveNow: () => void;
+  advanceDifficulty: () => void;
+  dismissDifficultyUnlock: () => void;
 }
 
 export interface LootPopup {
@@ -1011,6 +1030,8 @@ function buildInitialState(
     bookDropPity: profile.bookDropPity ?? 0,
     bookVendorPity: profile.bookVendorPity ?? 0,
     enhancementXpPool: (profile as Profile & { enhancementXpPool?: number }).enhancementXpPool ?? 0,
+    dungeonDifficulties: (profile as Profile & { dungeonDifficulties?: Record<string, DungeonDifficulty> }).dungeonDifficulties ?? {},
+    pendingDifficultyUnlock: null,
   };
 }
 
@@ -1331,7 +1352,22 @@ export function useGameState(
         });
       }
 
-      // Boss floor logic
+      // Difficulty max-floor check — fire unlock prompt when player reaches the cap
+      setState((prev) => {
+        const currentDiff: DungeonDifficulty = (prev.dungeonDifficulties[prev.currentDungeon] as DungeonDifficulty | undefined) ?? "easy";
+        const cfg = DIFFICULTY_CONFIG[currentDiff];
+        if (cfg.maxFloor !== null && floor >= cfg.maxFloor && cfg.next && !prev.pendingDifficultyUnlock) {
+          addLog(`🏆 You've cleared floor ${floor} on ${cfg.label}! You can now advance to ${DIFFICULTY_CONFIG[cfg.next].label}.`, "log-gem");
+          showNotif(`🏆 ${cfg.label.toUpperCase()} CLEARED! Advance to ${DIFFICULTY_CONFIG[cfg.next].label}?`);
+          stopWalkInterval();
+          return { ...prev, pendingDifficultyUnlock: { dungeonId: prev.currentDungeon, nextDifficulty: cfg.next } };
+        }
+        return prev;
+      });
+
+      // Boss floor logic — boss count scales with dungeon difficulty
+      const currentDiff: DungeonDifficulty = (stateRef.current.dungeonDifficulties[stateRef.current.currentDungeon] as DungeonDifficulty | undefined) ?? "easy";
+      const bossCount = DIFFICULTY_CONFIG[currentDiff].bossCount;
       if (floor % 10 === 0) {
         const isMegaBoss = floor % 100 === 0;
         if (isMegaBoss) {
@@ -1381,72 +1417,68 @@ export function useGameState(
             addLog(`☠️ Mega boss on floor ${floor} skipped (Leave Me Alone Mode).`, "log-muted");
           }
         } else {
-          showNotif(`💀 BOSS FLOOR ${floor}!`);
-          addLog(`💀 Mini boss on floor ${floor}!`, "log-red");
-          // GS drop roll for standard boss (every 10 floors)
-          setState((prev) => {
-            // Only roll if at least one slot has an Eternal Mythic item equipped
-            const SLOTS: GearSlot[] = ["helmet","gloves","chest","pants","boots","backpack","weapon","ring","amulet"];
-            const unlockedSlots = SLOTS.filter((sl) => {
-              const g = prev.equippedGear[sl];
-              return g && g.tier === "eternal" && g.rarity === "mythic";
-            });
-            if (unlockedSlots.length === 0) return prev;
-            // Roll for drop level: GS+1 (1%), GS+2 (0.5%), GS+3 (0.25%)
-            const dropLevels = [{ offset: 1, chance: 0.01 }, { offset: 2, chance: 0.005 }, { offset: 3, chance: 0.0025 }];
-            let droppedOffset = 0;
-            for (const { offset, chance } of dropLevels) {
-              if (Math.random() < chance) { droppedOffset = offset; break; }
-            }
-            if (droppedOffset === 0) return prev;
-            // Slot weighting: (maxGS - slotGS) + 1, favoring lagging slots
-            const highestGS = Math.max(...unlockedSlots.map((sl) => prev.equippedGear[sl]?.gearScore ?? 0));
-            const weights = unlockedSlots.map((sl) => ({ sl, w: (highestGS - (prev.equippedGear[sl]?.gearScore ?? 0)) + 1 }));
-            const totalW = weights.reduce((s, x) => s + x.w, 0);
-            let rand = Math.random() * totalW;
-            let chosenSlot: GearSlot = unlockedSlots[0];
-            for (const { sl, w } of weights) { rand -= w; if (rand <= 0) { chosenSlot = sl; break; } }
-            const equippedGs = prev.equippedGear[chosenSlot]?.gearScore ?? 0;
-            const newGs = equippedGs + droppedOffset;
-            const emptySlot = prev.bag.findIndex((s) => s === null);
-            if (emptySlot === -1) { addLog(`⭐ GS ${newGs} ${chosenSlot} dropped but bag is full!`, "log-muted"); return prev; }
-            const gsItem = generateGearItem(chosenSlot, "eternal", "mythic", newGs);
-            const newBag = [...prev.bag];
-            newBag[emptySlot] = gsItem;
-            addLog(`⭐ GS ${newGs} ${gsItem.name} dropped from boss!`, "log-gem");
-            showNotif(`⭐ GS ${newGs} DROP!`);
-            return { ...prev, bag: newBag };
-          });
-          // Pity-based book drop: 2% base + 1% per consecutive miss, resets on drop
-          setState((prev) => {
-            const dropChance = 0.02 + prev.bookDropPity * 0.01;
-            if (Math.random() < dropChance) {
-              // Book dropped — reset pity
-              const emptySlot = prev.bag.findIndex((s) => s === null);
-              if (emptySlot === -1) {
-                addLog("📖 Book dropped but bag is full!", "log-muted");
-                // Still reset pity even if bag is full
-                return { ...prev, bookDropPity: 0 };
+          // Run bossCount mini bosses (scales with difficulty)
+          const bossLabel = bossCount > 1 ? `x${bossCount} ` : "";
+          showNotif(`💀 ${bossLabel}BOSS FLOOR ${floor}!`);
+          addLog(`💀 ${bossCount} mini boss${bossCount > 1 ? "es" : ""} on floor ${floor}! [${DIFFICULTY_CONFIG[currentDiff].label}]`, "log-red");
+          for (let b = 0; b < bossCount; b++) {
+            // GS drop roll for standard boss (every 10 floors)
+            setState((prev) => {
+              const SLOTS: GearSlot[] = ["helmet","gloves","chest","pants","boots","backpack","weapon","ring","amulet"];
+              const unlockedSlots = SLOTS.filter((sl) => {
+                const g = prev.equippedGear[sl];
+                return g && g.tier === "eternal" && g.rarity === "mythic";
+              });
+              if (unlockedSlots.length === 0) return prev;
+              const dropLevels = [{ offset: 1, chance: 0.01 }, { offset: 2, chance: 0.005 }, { offset: 3, chance: 0.0025 }];
+              let droppedOffset = 0;
+              for (const { offset, chance } of dropLevels) {
+                if (Math.random() < chance) { droppedOffset = offset; break; }
               }
-              const preEnchanted = Math.random() < 0.2;
-              const book: BookItem = {
-                id: `book_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-                isBook: true,
-                enchantment: preEnchanted
-                  ? ALL_STATS[Math.floor(Math.random() * ALL_STATS.length)]
-                  : null,
-                baseValue: bookBaseValue(),
-                sourceSlot: null,
-              };
+              if (droppedOffset === 0) return prev;
+              const highestGS = Math.max(...unlockedSlots.map((sl) => prev.equippedGear[sl]?.gearScore ?? 0));
+              const weights = unlockedSlots.map((sl) => ({ sl, w: (highestGS - (prev.equippedGear[sl]?.gearScore ?? 0)) + 1 }));
+              const totalW = weights.reduce((s, x) => s + x.w, 0);
+              let rand = Math.random() * totalW;
+              let chosenSlot: GearSlot = unlockedSlots[0];
+              for (const { sl, w } of weights) { rand -= w; if (rand <= 0) { chosenSlot = sl; break; } }
+              const equippedGs = prev.equippedGear[chosenSlot]?.gearScore ?? 0;
+              const newGs = equippedGs + droppedOffset;
+              const emptySlot = prev.bag.findIndex((s) => s === null);
+              if (emptySlot === -1) { addLog(`⭐ GS ${newGs} ${chosenSlot} dropped but bag is full!`, "log-muted"); return prev; }
+              const gsItem = generateGearItem(chosenSlot, "eternal", "mythic", newGs);
               const newBag = [...prev.bag];
-              newBag[emptySlot] = book as unknown as BagItem;
-              addLog(preEnchanted ? `📖 Pre-enchanted book dropped! (${book.enchantment}) [${Math.round(dropChance * 100)}% chance]` : `📖 Blank book dropped! [${Math.round(dropChance * 100)}% chance]`, "log-gem");
-              return { ...prev, bag: newBag, bookDropPity: 0 };
-            } else {
-              // No drop — increment pity
-              return { ...prev, bookDropPity: prev.bookDropPity + 1 };
-            }
-          });
+              newBag[emptySlot] = gsItem;
+              addLog(`⭐ GS ${newGs} ${gsItem.name} dropped from boss ${b + 1}!`, "log-gem");
+              showNotif(`⭐ GS ${newGs} DROP!`);
+              return { ...prev, bag: newBag };
+            });
+            // Pity-based book drop per boss
+            setState((prev) => {
+              const dropChance = 0.02 + prev.bookDropPity * 0.01;
+              if (Math.random() < dropChance) {
+                const emptySlot = prev.bag.findIndex((s) => s === null);
+                if (emptySlot === -1) {
+                  addLog("📖 Book dropped but bag is full!", "log-muted");
+                  return { ...prev, bookDropPity: 0 };
+                }
+                const preEnchanted = Math.random() < 0.2;
+                const book: BookItem = {
+                  id: `book_${Date.now()}_${Math.random().toString(36).slice(2)}_b${b}`,
+                  isBook: true,
+                  enchantment: preEnchanted ? ALL_STATS[Math.floor(Math.random() * ALL_STATS.length)] : null,
+                  baseValue: bookBaseValue(),
+                  sourceSlot: null,
+                };
+                const newBag = [...prev.bag];
+                newBag[emptySlot] = book as unknown as BagItem;
+                addLog(preEnchanted ? `📖 Pre-enchanted book dropped! (${book.enchantment}) [boss ${b + 1}]` : `📖 Blank book dropped! [boss ${b + 1}]`, "log-gem");
+                return { ...prev, bag: newBag, bookDropPity: 0 };
+              } else {
+                return { ...prev, bookDropPity: prev.bookDropPity + 1 };
+              }
+            });
+          }
         }
       }
 
@@ -2531,6 +2563,23 @@ export function useGameState(
     setState((prev) => ({ ...prev, lastRerollResult: null }));
   }, []);
 
+  const advanceDifficulty = useCallback(() => {
+    setState((prev) => {
+      if (!prev.pendingDifficultyUnlock) return prev;
+      const { dungeonId, nextDifficulty } = prev.pendingDifficultyUnlock;
+      const newDiffs = { ...prev.dungeonDifficulties, [dungeonId]: nextDifficulty };
+      addLog(`🏆 Advanced to ${DIFFICULTY_CONFIG[nextDifficulty].label} difficulty for this dungeon!`, "log-gem");
+      showNotif(`🏆 ${DIFFICULTY_CONFIG[nextDifficulty].label.toUpperCase()} UNLOCKED!`);
+      return { ...prev, dungeonDifficulties: newDiffs, pendingDifficultyUnlock: null, currentFloor: 0, isInDungeon: false };
+    });
+    startWalkInterval();
+  }, [addLog, showNotif, startWalkInterval]);
+
+  const dismissDifficultyUnlock = useCallback(() => {
+    setState((prev) => ({ ...prev, pendingDifficultyUnlock: null }));
+    startWalkInterval();
+  }, [startWalkInterval]);
+
   const saveNow = useCallback(() => {
     const s = stateRef.current;
     const offlineData = s.isInDungeon && !s.isReturning
@@ -2552,6 +2601,7 @@ export function useGameState(
       quests: s.quests,
       bookDropPity: s.bookDropPity,
       enhancementXpPool: s.enhancementXpPool,
+      dungeonDifficulties: s.dungeonDifficulties,
       ...offlineData,
     });
     setLastSaved(Date.now());
@@ -2613,6 +2663,8 @@ export function useGameState(
       offlineSummary,
       clearOfflineSummary,
       saveNow,
+      advanceDifficulty,
+      dismissDifficultyUnlock,
     },
   ];
 }

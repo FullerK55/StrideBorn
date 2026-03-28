@@ -6,6 +6,7 @@
 // ============================================================
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import type { DungeonDifficulty } from "@/hooks/useGameState";
 
 export interface Profile {
   id: string;
@@ -31,6 +32,7 @@ export interface Profile {
   bookDropPity: number;  // pity counter for mini boss book drops
   bookVendorPity: number; // floors cleared after floor 200 without book vendor spawning
   enhancementXpPool: number; // global pool of Enhancement XP from Anvil
+  dungeonDifficulties: Record<string, DungeonDifficulty>; // per-dungeon difficulty
   // Offline progress tracking
   offlineTimestamp: number | null;
   offlineFloor: number | null;
@@ -62,6 +64,7 @@ function loadProfiles(): Profile[] {
       bookDropPity: typeof p.bookDropPity === 'number' ? p.bookDropPity : 0,
       bookVendorPity: typeof p.bookVendorPity === 'number' ? p.bookVendorPity : 0,
       enhancementXpPool: typeof (p as Profile & { enhancementXpPool?: number }).enhancementXpPool === 'number' ? (p as Profile & { enhancementXpPool?: number }).enhancementXpPool! : 0,
+      dungeonDifficulties: (p as Profile & { dungeonDifficulties?: Record<string, DungeonDifficulty> }).dungeonDifficulties ?? {},
       stash: Array.isArray(p.stash) ? p.stash : [],
       runs: p.runs ?? 0,
       lives: p.lives ?? 1,
@@ -110,6 +113,7 @@ function createProfile(name: string, avatar: string): Profile {
     bookDropPity: 0,
     bookVendorPity: 0,
     enhancementXpPool: 0,
+    dungeonDifficulties: {},
     offlineTimestamp: null,
     offlineFloor: null,
     offlineDungeon: null,

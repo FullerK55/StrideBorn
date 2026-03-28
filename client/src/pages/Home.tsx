@@ -24,6 +24,8 @@ import EnhanceTab from "@/components/EnhanceTab";
 import BookshelfTab from "@/components/BookshelfTab";
 import MegaBossModal from "@/components/MegaBossModal";
 import EnchantingTableModal from "@/components/EnchantingTableModal";
+import DifficultyUnlockModal from "@/components/DifficultyUnlockModal";
+import { DIFFICULTY_CONFIG } from "@/hooks/useGameState";
 
 type Tab = "bag" | "stash" | "gear" | "materials" | "craft" | "enhance" | "shop" | "bookshelf" | "quests" | "dungeons" | "log";
 
@@ -165,6 +167,20 @@ export default function Home() {
         {state.activeFence && <FenceModal state={state} actions={actions} />}
         {state.activeMegaBoss && <MegaBossModal state={state} actions={actions} />}
         {state.activeEnchantingTable && <EnchantingTableModal state={state} actions={actions} />}
+        {state.pendingDifficultyUnlock && (() => {
+          const { dungeonId, nextDifficulty } = state.pendingDifficultyUnlock;
+          const dungeon = DUNGEONS.find(d => d.id === dungeonId);
+          const currentDiff = (state.dungeonDifficulties[dungeonId] as import('@/hooks/useGameState').DungeonDifficulty | undefined) ?? 'easy';
+          return (
+            <DifficultyUnlockModal
+              dungeonName={dungeon?.name ?? dungeonId}
+              currentDifficulty={currentDiff}
+              nextDifficulty={nextDifficulty}
+              onAdvance={actions.advanceDifficulty}
+              onStay={actions.dismissDifficultyUnlock}
+            />
+          );
+        })()}
 
         {/* OFFLINE SUMMARY MODAL */}
         {actions.offlineSummary && (
@@ -671,9 +687,20 @@ export default function Home() {
                 >
                   <div style={{ fontSize: 28, flexShrink: 0 }}>{d.icon}</div>
                   <div style={{ flex: 1 }}>
-                    <div className="pixel-font" style={{ fontSize: 8, color: "var(--gold)", marginBottom: 3 }}>
-                      {d.name}{!d.unlocked ? ` 🔒 (floor ${d.unlockFloor})` : ""}
-                      {d.id === state.currentDungeon ? " ✓" : ""}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                      <div className="pixel-font" style={{ fontSize: 8, color: "var(--gold)" }}>
+                        {d.name}{!d.unlocked ? ` 🔒 (floor ${d.unlockFloor})` : ""}
+                        {d.id === state.currentDungeon ? " ✓" : ""}
+                      </div>
+                      {d.unlocked && (() => {
+                        const diff = (state.dungeonDifficulties[d.id] as import('@/hooks/useGameState').DungeonDifficulty | undefined) ?? 'easy';
+                        const cfg = DIFFICULTY_CONFIG[diff];
+                        return (
+                          <span style={{ fontSize: 9, fontWeight: 700, color: cfg.color, border: `1px solid ${cfg.color}40`, borderRadius: 4, padding: "1px 5px", background: `${cfg.color}15` }}>
+                            {cfg.label.toUpperCase()}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <div style={{ fontSize: 13, color: "var(--game-muted)" }}>{d.desc}</div>
                     <div style={{ fontSize: 12, color: "var(--gem)", marginTop: 2 }}>{d.drops.join(" · ")}</div>
