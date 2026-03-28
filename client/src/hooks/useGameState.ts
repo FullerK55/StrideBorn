@@ -18,12 +18,14 @@ export interface AutoInvestConfig {
   goldReserve: number;
   anvilBreakMaxRarity: GearRarity | null;
   anvilBreakFromStash: boolean;    // also break stash gear (not just bag)
+  anvilProtectGS: boolean;         // never auto-break gear that has a gearScore
   fenceSellMaxRarity: GearRarity | null; // auto-sell bag gear at or below this rarity to fence
 }
 
 // ---- Advanced Leave Me Alone config ----
 export interface LeaveAloneAdvancedConfig {
   showMegaBossReward: boolean; // if true, pauses and shows reward popup; if false, skips silently
+  autoEquipHigherGS: boolean;  // auto-equip any bag GS item that beats the equipped slot's GS
 }
 
 // ============================================================
@@ -1282,6 +1284,44 @@ export function useGameState(
         return added > 0 ? { ...prev, bag: currentBag } : prev;
       });
 
+      // Auto-equip higher GS items from bag (if Advanced AFK setting is on)
+      if (leaveAloneAdvancedRef.current?.autoEquipHigherGS) {
+        setState((prev) => {
+          const SLOTS: GearSlot[] = ["helmet","gloves","chest","pants","boots","backpack","weapon","ring","amulet"];
+          let changed = false;
+          let newEquipped = { ...prev.equippedGear };
+          const newBag = [...prev.bag];
+          for (const sl of SLOTS) {
+            const equipped = newEquipped[sl];
+            if (!equipped || equipped.gearScore === undefined) continue; // only swap if currently wearing a GS item
+            const equippedGs = equipped.gearScore;
+            // Find the highest GS bag item for this slot that beats the equipped GS
+            let bestIdx = -1;
+            let bestGs = equippedGs;
+            for (let i = 0; i < newBag.length; i++) {
+              const b = newBag[i];
+              if (!b || !('isGear' in b)) continue;
+              const g = b as GearItem;
+              if (g.slot !== sl) continue;
+              if (g.gearScore === undefined) continue;
+              if (g.gearScore > bestGs) { bestGs = g.gearScore; bestIdx = i; }
+            }
+            if (bestIdx >= 0) {
+              // Swap: put old equipped into bag slot, equip new one
+              newBag[bestIdx] = equipped;
+              newEquipped = { ...newEquipped, [sl]: newBag[bestIdx] === equipped ? newBag[bestIdx] : prev.bag[bestIdx] as GearItem };
+              // Actually equip the new item
+              const newItem = prev.bag[bestIdx] as GearItem;
+              newBag[bestIdx] = equipped;
+              newEquipped[sl] = newItem;
+              changed = true;
+              addLog(`⭐ Auto-equipped GS ${newItem.gearScore} ${newItem.name} (was GS ${equippedGs})`, "log-gem");
+            }
+          }
+          return changed ? { ...prev, equippedGear: newEquipped, bag: newBag } : prev;
+        });
+      }
+
       // Boss floor logic
       if (floor % 10 === 0) {
         const isMegaBoss = floor % 100 === 0;
@@ -1487,11 +1527,21 @@ export function useGameState(
               if (prev.activeVendor || prev.activeAnvil || prev.activeFence) return prev;
               // Bag gear to break
               const bagToBreak = prev.bag
-                .filter((b): b is GearItem => b !== null && 'isGear' in b && rarityLte((b as GearItem).rarity, ai.anvilBreakMaxRarity!))
+                .filter((b): b is GearItem => {
+                  if (!b || !('isGear' in b)) return false;
+                  const g = b as GearItem;
+                  if (!rarityLte(g.rarity, ai.anvilBreakMaxRarity!)) return false;
+                  if (ai.anvilProtectGS && g.gearScore !== undefined) return false; // protect GS gear
+                  return true;
+                })
                 .map((g) => g as GearItem);
               // Stash gear to break (if enabled)
               const stashToBreak: GearItem[] = ai.anvilBreakFromStash
-                ? prev.stash.filter((g) => rarityLte(g.rarity, ai.anvilBreakMaxRarity!))
+                ? prev.stash.filter((g) => {
+                    if (!rarityLte(g.rarity, ai.anvilBreakMaxRarity!)) return false;
+                    if (ai.anvilProtectGS && g.gearScore !== undefined) return false;
+                    return true;
+                  })
                 : [];
               const toBreak = [...bagToBreak, ...stashToBreak];
               if (toBreak.length === 0) return prev;

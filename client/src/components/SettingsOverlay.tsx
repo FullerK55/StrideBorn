@@ -16,6 +16,7 @@ const AUTO_INVEST_KEY = "strideborn_auto_invest";
 
 const DEFAULT_LEAVE_ALONE_ADVANCED: LeaveAloneAdvancedConfig = {
   showMegaBossReward: false,
+  autoEquipHigherGS: false,
 };
 
 export function loadLeaveAloneAdvanced(): LeaveAloneAdvancedConfig {
@@ -55,6 +56,7 @@ const DEFAULT_AUTO_INVEST: AutoInvestConfig = {
   goldReserve: 2000,
   anvilBreakMaxRarity: "uncommon",
   anvilBreakFromStash: false,
+  anvilProtectGS: true,
   fenceSellMaxRarity: null,
 };
 
@@ -464,6 +466,17 @@ export default function SettingsOverlay({
                   <div style={{ fontSize: 12, color: "var(--game-muted)", padding: "4px 12px", background: "rgba(255,100,0,0.06)", border: "1px solid rgba(255,100,0,0.2)", borderRadius: 4 }}>
                     ⚠️ Gear at or below <strong style={{ color: "var(--game-text)" }}>{autoInvest.anvilBreakMaxRarity}</strong>{autoInvest.anvilBreakFromStash ? " in your bag AND stash" : " in your bag"} will be automatically broken down into Enhancement XP when an anvil spawns.
                   </div>
+                  <ToggleRow
+                    label="🛡️ Protect GS Gear"
+                    note="Never auto-break gear that has a Gear Score, regardless of rarity"
+                    active={autoInvest.anvilProtectGS}
+                    onClick={() => updateAI({ anvilProtectGS: !autoInvest.anvilProtectGS })}
+                  />
+                  {autoInvest.anvilProtectGS && (
+                    <div style={{ fontSize: 12, color: "var(--game-muted)", padding: "4px 12px", background: "rgba(0,200,100,0.06)", border: "1px solid rgba(0,200,100,0.2)", borderRadius: 4 }}>
+                      ✅ Any gear with a Gear Score (GS) will be kept safe from auto-salvage, even if it falls within the rarity threshold.
+                    </div>
+                  )}
                 </>
               )}
 
@@ -505,6 +518,17 @@ export default function SettingsOverlay({
               {leaveAloneAdvanced.showMegaBossReward && (
                 <div style={{ fontSize: 12, color: "var(--game-muted)", padding: "4px 12px", background: "rgba(255,170,0,0.06)", border: "1px solid rgba(255,170,0,0.2)", borderRadius: 4 }}>
                   ✅ The run will pause at every floor 100, 200, 300… so you can choose Portal (return to base) or Enchanting Table.
+                </div>
+              )}
+              <ToggleRow
+                label="⭐ Auto-Equip Higher GS"
+                note="Automatically swap in any bag GS item that beats your currently equipped GS item in the same slot"
+                active={leaveAloneAdvanced.autoEquipHigherGS}
+                onClick={() => updateLAA({ autoEquipHigherGS: !leaveAloneAdvanced.autoEquipHigherGS })}
+              />
+              {leaveAloneAdvanced.autoEquipHigherGS && (
+                <div style={{ fontSize: 12, color: "var(--game-muted)", padding: "4px 12px", background: "rgba(0,200,255,0.06)", border: "1px solid rgba(0,200,255,0.2)", borderRadius: 4 }}>
+                  ✅ Only swaps GS gear for GS gear. Normal (non-GS) items are never auto-equipped. The old GS item goes back into your bag.
                 </div>
               )}
             </div>
