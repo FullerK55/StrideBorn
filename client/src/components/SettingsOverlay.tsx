@@ -316,6 +316,45 @@ export default function SettingsOverlay({
                 <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#444", textAlign: "right" }}>base 2%<br />+0.01%/flr</div>
               </div>
             )}
+
+            {/* GS per-slot summary — always shown when state is available */}
+            {(() => {
+              const SLOTS: GearSlot[] = ["helmet","gloves","chest","pants","boots","backpack","weapon","ring","amulet"];
+              const rows = SLOTS.map((sl) => {
+                const equipped = state!.equippedGear[sl];
+                // Eligible = has Eternal Mythic equipped in this slot
+                const eligible = equipped && equipped.tier === "eternal" && equipped.rarity === "mythic";
+                // GS value: the equipped item's gearScore (may be 0 or undefined)
+                const gsVal = equipped?.gearScore;
+                let display: string;
+                let color: string;
+                if (!eligible) {
+                  display = "✕";
+                  color = "#444";
+                } else if (gsVal === undefined || gsVal === 0) {
+                  display = "0";
+                  color = "#888";
+                } else {
+                  display = String(gsVal);
+                  color = "#ffd700";
+                }
+                return { sl, display, color };
+              });
+              return (
+                <div style={{ marginTop: 10, background: "#0a0a1a", border: "1px solid rgba(255,215,0,0.15)", padding: "8px 10px", borderRadius: 3 }}>
+                  <div className="pixel-font" style={{ fontSize: 8, color: "#ffd700", marginBottom: 8, letterSpacing: 1 }}>⭐ GEAR SCORE PER SLOT</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>
+                    {rows.map(({ sl, display, color }) => (
+                      <div key={sl} style={{ background: "rgba(255,215,0,0.04)", border: `1px solid ${color === "#ffd700" ? "rgba(255,215,0,0.3)" : "rgba(80,80,100,0.3)"}`, borderRadius: 3, padding: "5px 6px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "var(--game-muted)", textTransform: "capitalize" }}>{sl}</span>
+                        <span style={{ fontFamily: "'VT323', monospace", fontSize: 14, color, fontWeight: "bold" }}>{display}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 11, color: "#444", marginTop: 6 }}>✕ = not yet Eternal Mythic · 0 = eligible, none dropped</div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
