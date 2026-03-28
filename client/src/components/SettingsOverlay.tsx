@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import { useProfile } from "@/contexts/ProfileContext";
-import type { GameState, GearRarity, AutoInvestConfig, LeaveAloneAdvancedConfig } from "@/hooks/useGameState";
+import type { GameState, GearRarity, GearSlot, AutoInvestConfig, LeaveAloneAdvancedConfig } from "@/hooks/useGameState";
 export type { AutoInvestConfig, LeaveAloneAdvancedConfig };
 
 const NERD_MODE_KEY = "strideborn_nerd_mode";
@@ -14,9 +14,15 @@ const LEAVE_ALONE_KEY = "strideborn_leave_alone";
 const LEAVE_ALONE_ADVANCED_KEY = "strideborn_leave_alone_advanced";
 const AUTO_INVEST_KEY = "strideborn_auto_invest";
 
+const ALL_GS_SLOTS: GearSlot[] = ["helmet","gloves","chest","pants","boots","backpack","weapon","ring","amulet"];
+const GS_SLOT_LABELS: Record<GearSlot, string> = {
+  helmet: "Helmet", gloves: "Gloves", chest: "Chest", pants: "Pants",
+  boots: "Boots", backpack: "Backpack", weapon: "Weapon", ring: "Ring", amulet: "Amulet"
+};
 const DEFAULT_LEAVE_ALONE_ADVANCED: LeaveAloneAdvancedConfig = {
   showMegaBossReward: false,
   autoEquipHigherGS: false,
+  autoEquipGSSlots: [], // empty = all slots
 };
 
 export function loadLeaveAloneAdvanced(): LeaveAloneAdvancedConfig {
@@ -527,9 +533,54 @@ export default function SettingsOverlay({
                 onClick={() => updateLAA({ autoEquipHigherGS: !leaveAloneAdvanced.autoEquipHigherGS })}
               />
               {leaveAloneAdvanced.autoEquipHigherGS && (
-                <div style={{ fontSize: 12, color: "var(--game-muted)", padding: "4px 12px", background: "rgba(0,200,255,0.06)", border: "1px solid rgba(0,200,255,0.2)", borderRadius: 4 }}>
-                  ✅ Only swaps GS gear for GS gear. Normal (non-GS) items are never auto-equipped. The old GS item goes back into your bag.
-                </div>
+                <>
+                  <div style={{ fontSize: 12, color: "var(--game-muted)", padding: "4px 12px", background: "rgba(0,200,255,0.06)", border: "1px solid rgba(0,200,255,0.2)", borderRadius: 4 }}>
+                    ✅ Only swaps GS gear for GS gear. Normal (non-GS) items are never auto-equipped. The old GS item goes back into your bag.
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--game-muted)", marginTop: 4, marginBottom: 2 }}>
+                    ENABLED SLOTS (tap to toggle — all enabled when none selected)
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>
+                    {ALL_GS_SLOTS.map((sl) => {
+                      const slots = leaveAloneAdvanced.autoEquipGSSlots ?? [];
+                      const isEnabled = slots.length === 0 || slots.includes(sl);
+                      const isExplicit = slots.includes(sl);
+                      function toggleSlot() {
+                        const current = leaveAloneAdvanced.autoEquipGSSlots ?? [];
+                        let next: GearSlot[];
+                        if (current.length === 0) {
+                          // All were implicitly on — explicitly disable just this one
+                          next = ALL_GS_SLOTS.filter((s) => s !== sl);
+                        } else if (isExplicit) {
+                          next = current.filter((s) => s !== sl);
+                          if (next.length === ALL_GS_SLOTS.length - 1) next = []; // all on = reset to empty
+                        } else {
+                          next = [...current, sl];
+                          if (next.length === ALL_GS_SLOTS.length) next = []; // all on = reset to empty
+                        }
+                        updateLAA({ autoEquipGSSlots: next });
+                      }
+                      return (
+                        <button
+                          key={sl}
+                          onClick={toggleSlot}
+                          style={{
+                            fontFamily: "'VT323', monospace",
+                            fontSize: 12,
+                            padding: "4px 6px",
+                            cursor: "pointer",
+                            borderRadius: 3,
+                            border: isEnabled ? "1px solid rgba(0,200,255,0.5)" : "1px solid rgba(100,100,150,0.3)",
+                            background: isEnabled ? "rgba(0,200,255,0.12)" : "rgba(30,30,50,0.5)",
+                            color: isEnabled ? "#00c8ff" : "var(--game-muted)",
+                          }}
+                        >
+                          {isEnabled ? "☑" : "☐"} {GS_SLOT_LABELS[sl]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
               )}
             </div>
           </div>

@@ -107,9 +107,14 @@ export default function EnhanceTab({ state, actions }: Props) {
     : null;
 
   // Stash items eligible as sacrifice (not the target itself, same slot as target)
-  const sacrificeCandidates = target
+  // GS gear (gearScore > 0) can ONLY be salvaged at the Anvil — never used as enhancement sacrifice
+  const sacrificeCandidates = (target
     ? state.stash.filter((g) => g.id !== targetId && g.slot === target.slot)
-    : state.stash.filter((g) => g.id !== targetId);
+    : state.stash.filter((g) => g.id !== targetId)
+  ).filter((g) => !g.gearScore); // exclude GS items from sacrifice list
+
+  // If target itself is a GS item (GS > 0), enhancement is blocked
+  const targetIsGS = target ? (target.gearScore !== undefined && target.gearScore > 0) : false;
 
   // XP preview
   const xpFromGear = Array.from(sacrificeIds).reduce((sum, id) => {
@@ -165,6 +170,7 @@ export default function EnhanceTab({ state, actions }: Props) {
 
   function handleEnhance() {
     if (!targetId) return;
+    if (targetIsGS) return; // GS items cannot be enhanced above GS 0
     if (confirmPending) {
       actions.enhanceGear(targetId, Array.from(sacrificeIds), matQty, effectivePoolSpend);
       setSacrificeIds(new Set());
@@ -633,27 +639,34 @@ export default function EnhanceTab({ state, actions }: Props) {
               <span>Total: <span style={{ color: "#66ff88" }}>+{totalXpPreview}</span></span>
             </div>
 
-            {totalXpPreview === 0 && !alreadyOverThreshold && (
+            {targetIsGS && (
+              <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ff4444", marginBottom: 8, padding: "6px 10px", background: "rgba(255,50,50,0.08)", border: "1px solid rgba(255,50,50,0.3)", borderRadius: 4 }}>
+                🛡️ GS gear cannot be enhanced. Salvage at the Anvil for Enhancement XP.
+              </div>
+            )}
+            {!targetIsGS && totalXpPreview === 0 && !alreadyOverThreshold && (
               <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ff6644", marginBottom: 8 }}>
                 Select at least one gear piece, material, or pool XP to sacrifice
               </div>
             )}
-            {alreadyOverThreshold && totalXpPreview === 0 && (
+            {!targetIsGS && alreadyOverThreshold && totalXpPreview === 0 && (
               <div style={{ fontFamily: "'VT323', monospace", fontSize: 14, color: "#ffcc44", marginBottom: 8 }}>
-                ✦ XP already meets threshold — click ENHANCE to tier up!
+                ❆ XP already meets threshold — click ENHANCE to tier up!
               </div>
             )}
 
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <button
                 onClick={handleEnhance}
-                disabled={totalXpPreview === 0 && !alreadyOverThreshold}
-                style={s.btn(totalXpPreview > 0 || alreadyOverThreshold, confirmPending ? "#ff4444" : alreadyOverThreshold && totalXpPreview === 0 ? "#ffcc44" : "#aa88ff")}>
+                disabled={targetIsGS || (totalXpPreview === 0 && !alreadyOverThreshold)}
+                style={s.btn(!targetIsGS && (totalXpPreview > 0 || alreadyOverThreshold), confirmPending ? "#ff4444" : alreadyOverThreshold && totalXpPreview === 0 ? "#ffcc44" : "#aa88ff")}>
                 {confirmPending
                   ? "⚠ CONFIRM TIER UP?"
-                  : alreadyOverThreshold && totalXpPreview === 0
-                    ? "✦ TIER UP NOW!"
-                    : `⚗️ ENHANCE (+${totalXpPreview} XP)`}
+                  : targetIsGS
+                    ? "🛡️ CANNOT ENHANCE GS GEAR"
+                    : alreadyOverThreshold && totalXpPreview === 0
+                      ? "❆ TIER UP NOW!"
+                      : `⚗️ ENHANCE (+${totalXpPreview} XP)`}
               </button>
               {confirmPending && (
                 <button

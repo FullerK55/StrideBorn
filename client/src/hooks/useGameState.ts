@@ -25,7 +25,8 @@ export interface AutoInvestConfig {
 // ---- Advanced Leave Me Alone config ----
 export interface LeaveAloneAdvancedConfig {
   showMegaBossReward: boolean; // if true, pauses and shows reward popup; if false, skips silently
-  autoEquipHigherGS: boolean;  // auto-equip any bag GS item that beats the equipped slot's GS
+  autoEquipHigherGS: boolean;  // master toggle: auto-equip any bag GS item that beats the equipped slot's GS
+  autoEquipGSSlots: GearSlot[]; // per-slot whitelist — only auto-equip for slots in this list (empty = all slots)
 }
 
 // ============================================================
@@ -644,7 +645,7 @@ function getStatCount(rarity: GearRarity): number {
   }
 }
 
-function rollStats(slot: GearSlot, rarity: GearRarity, tier: GearTier, gearScore = 0): { stat: string; value: number }[] {
+function rollStats(slot: GearSlot, rarity: GearRarity, tier: GearTier, gearScore = 0, maxQuality = false): { stat: string; value: number }[] {
   const pool = SLOT_STATS[slot];
   const count = getStatCount(rarity);
   const tierMult: Record<GearTier, number> = { iron: 1, steel: 1.5, shadow: 2.5, void: 4, celestial: 7, obsidian: 11, runic: 17, spectral: 26, primordial: 40, eternal: 60 };
@@ -656,10 +657,11 @@ function rollStats(slot: GearSlot, rarity: GearRarity, tier: GearTier, gearScore
   for (let i = 0; i < Math.min(count, shuffled.length); i++) {
     chosen.push(shuffled[i]);
   }
-  // GS adds +gs to the min of the roll range, shifting both ends up by gs
+  // GS items always roll at max quality (20 * tm * rarityMult + gs)
+  // Normal items roll randomly in the 5–20 range
   return chosen.map((stat) => ({
     stat,
-    value: Math.floor((5 + Math.random() * 15) * tm * rarityMult) + gs,
+    value: Math.floor((maxQuality ? 20 : 5 + Math.random() * 15) * tm * rarityMult) + gs,
   }));
 }
 
@@ -669,14 +671,18 @@ function generateGearItem(slot: GearSlot, tier: GearTier, rarity: GearRarity, ge
   const tierLabel: Record<GearTier, string> = { iron: "Iron", steel: "Steel", shadow: "Shadow", void: "Void", celestial: "Celestial", obsidian: "Obsidian", runic: "Runic", spectral: "Spectral", primordial: "Primordial", eternal: "Eternal" };
   const tLabel = tierLabel[tier];
   const sockets = getSocketCount(rarity);
+  // GS items always drop at Mythic rarity, Eternal tier, and max quality stats
+  const effectiveTier = gearScore > 0 ? "eternal" as GearTier : tier;
+  const effectiveRarity = gearScore > 0 ? "mythic" as GearRarity : rarity;
+  const maxQuality = gearScore > 0;
   const item: GearItem = {
     id: `gear_${Date.now()}_${gearIdCounter++}`,
     slot,
-    tier,
-    rarity,
-    name: `${tLabel} ${slotInfo.label}`,
+    tier: effectiveTier,
+    rarity: effectiveRarity,
+    name: `${gearScore > 0 ? "Eternal" : tLabel} ${slotInfo.label}`,
     emoji: slotInfo.emoji,
-    stats: rollStats(slot, rarity, tier, gearScore),
+    stats: rollStats(slot, effectiveRarity, effectiveTier, gearScore, maxQuality),
     sockets,
     runes: Array(sockets).fill(null),
     enhancementXp: 0,
@@ -1287,7 +1293,10 @@ export function useGameState(
       // Auto-equip higher GS items from bag (if Advanced AFK setting is on)
       if (leaveAloneAdvancedRef.current?.autoEquipHigherGS) {
         setState((prev) => {
-          const SLOTS: GearSlot[] = ["helmet","gloves","chest","pants","boots","backpack","weapon","ring","amulet"];
+          const ALL_SLOTS: GearSlot[] = ["helmet","gloves","chest","pants","boots","backpack","weapon","ring","amulet"];
+          const allowedSlots = leaveAloneAdvancedRef.current?.autoEquipGSSlots;
+          // If allowedSlots is empty array, treat as all slots enabled
+          const SLOTS = (allowedSlots && allowedSlots.length > 0) ? allowedSlots : ALL_SLOTS;
           let changed = false;
           let newEquipped = { ...prev.equippedGear };
           const newBag = [...prev.bag];
