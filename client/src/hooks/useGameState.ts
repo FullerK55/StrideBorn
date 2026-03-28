@@ -668,7 +668,19 @@ function getStatCount(rarity: GearRarity): number {
   }
 }
 
-// Slots that get 6 fully-random stats from ALL_STATS (duplicates allowed) when they are GS items
+// Stats that have real implemented game logic — only these can appear on GS items
+const GS_FUNCTIONAL_STATS: string[] = [
+  "Steps Efficiency",
+  "Return Speed",
+  "Bag Slots",
+  "Loot Find",
+  "Item Rarity",
+  "Gold Find",
+  "Material Yield",
+  "Salvage Yield",
+];
+
+// Slots that get 6 fully-random stats from GS_FUNCTIONAL_STATS (duplicates allowed) when they are GS items
 const GS_FULL_RANDOM_SLOTS = new Set<GearSlot>(["helmet", "gloves", "chest", "weapon", "ring", "amulet"]);
 
 function rollStats(slot: GearSlot, rarity: GearRarity, tier: GearTier, gearScore = 0, maxQuality = false): { stat: string; value: number }[] {
@@ -677,11 +689,11 @@ function rollStats(slot: GearSlot, rarity: GearRarity, tier: GearTier, gearScore
   const rarityMult = { scrap: 0.5, common: 1, uncommon: 1.3, rare: 1.8, epic: 2.5, legendary: 3.5, mythic: 5 }[rarity];
   const gs = Math.max(0, gearScore);
 
-  // GS items on the 6 designated slots: 6 stats drawn from ALL_STATS, duplicates allowed
+  // GS items on the 6 designated slots: 6 stats drawn from GS_FUNCTIONAL_STATS, duplicates allowed
   if (gearScore > 0 && GS_FULL_RANDOM_SLOTS.has(slot)) {
     const chosen: string[] = [];
     for (let i = 0; i < 6; i++) {
-      chosen.push(ALL_STATS[Math.floor(Math.random() * ALL_STATS.length)]);
+      chosen.push(GS_FUNCTIONAL_STATS[Math.floor(Math.random() * GS_FUNCTIONAL_STATS.length)]);
     }
     return chosen.map((stat) => ({
       stat,
