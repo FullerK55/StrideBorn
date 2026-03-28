@@ -680,41 +680,34 @@ const GS_FUNCTIONAL_STATS: string[] = [
   "Salvage Yield",
 ];
 
-// Slots that get 6 fully-random stats from GS_FUNCTIONAL_STATS (duplicates allowed) when they are GS items
-const GS_FULL_RANDOM_SLOTS = new Set<GearSlot>(["helmet", "gloves", "chest", "weapon", "ring", "amulet"]);
-
-function rollStats(slot: GearSlot, rarity: GearRarity, tier: GearTier, gearScore = 0, maxQuality = false): { stat: string; value: number }[] {
+function rollStats(slot: GearSlot, rarity: GearRarity, tier: GearTier, gearScore = 0): { stat: string; value: number }[] {
   const tierMult: Record<GearTier, number> = { iron: 1, steel: 1.5, shadow: 2.5, void: 4, celestial: 7, obsidian: 11, runic: 17, spectral: 26, primordial: 40, eternal: 60 };
   const tm = tierMult[tier];
   const rarityMult = { scrap: 0.5, common: 1, uncommon: 1.3, rare: 1.8, epic: 2.5, legendary: 3.5, mythic: 5 }[rarity];
   const gs = Math.max(0, gearScore);
 
-  // GS items on the 6 designated slots: 6 stats drawn from GS_FUNCTIONAL_STATS, duplicates allowed
-  if (gearScore > 0 && GS_FULL_RANDOM_SLOTS.has(slot)) {
-    const chosen: string[] = [];
-    for (let i = 0; i < 6; i++) {
-      chosen.push(GS_FUNCTIONAL_STATS[Math.floor(Math.random() * GS_FUNCTIONAL_STATS.length)]);
-    }
-    return chosen.map((stat) => ({
-      stat,
-      value: Math.floor(20 * tm * rarityMult) + gs,
-    }));
-  }
-
-  // Normal items (and non-listed GS slots): use slot-specific pool, no duplicates
-  const pool = SLOT_STATS[slot];
-  const count = getStatCount(rarity);
+  // All items (GS or not) draw from GS_FUNCTIONAL_STATS pool, no duplicates
+  // Stat count: GS items always get 6; non-GS items use rarity-based count
+  const pool = GS_FUNCTIONAL_STATS;
+  const count = gearScore > 0 ? 6 : getStatCount(rarity);
   const chosen: string[] = [];
   const shuffled = [...pool].sort(() => Math.random() - 0.5);
   for (let i = 0; i < Math.min(count, shuffled.length); i++) {
     chosen.push(shuffled[i]);
   }
-  // GS items always roll at max quality (20 * tm * rarityMult + gs)
-  // Normal items roll randomly in the 5–20 range
-  return chosen.map((stat) => ({
-    stat,
-    value: Math.floor((maxQuality ? 20 : 5 + Math.random() * 15) * tm * rarityMult) + gs,
-  }));
+
+  // Stat value: random roll between min and max
+  // GS shifts both limits up by gearScore — it raises the floor AND ceiling, but the roll is still random
+  // min = floor(5 * tm * rarityMult) + gs
+  // max = floor(20 * tm * rarityMult) + gs
+  return chosen.map((stat) => {
+    const baseMin = Math.floor(5 * tm * rarityMult);
+    const baseMax = Math.floor(20 * tm * rarityMult);
+    const min = baseMin + gs;
+    const max = baseMax + gs;
+    const value = min + Math.floor(Math.random() * (max - min + 1));
+    return { stat, value };
+  });
 }
 
 let gearIdCounter = 0;
@@ -734,7 +727,7 @@ function generateGearItem(slot: GearSlot, tier: GearTier, rarity: GearRarity, ge
     rarity: effectiveRarity,
     name: `${gearScore > 0 ? "Eternal" : tLabel} ${slotInfo.label}`,
     emoji: slotInfo.emoji,
-    stats: rollStats(slot, effectiveRarity, effectiveTier, gearScore, maxQuality),
+    stats: rollStats(slot, effectiveRarity, effectiveTier, gearScore),
     sockets,
     runes: Array(sockets).fill(null),
     enhancementXp: 0,
