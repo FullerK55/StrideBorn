@@ -24,6 +24,7 @@ const DEFAULT_LEAVE_ALONE_ADVANCED: LeaveAloneAdvancedConfig = {
   autoEquipHigherGS: false,
   autoEquipGSSlots: [], // empty = all slots
   autoAdvanceDifficulty: false,
+  autoPortal: false,
 };
 
 export function loadLeaveAloneAdvanced(): LeaveAloneAdvancedConfig {
@@ -575,6 +576,17 @@ export default function SettingsOverlay({
               {leaveAloneAdvanced.showMegaBossReward && (
                 <div style={{ fontSize: 12, color: "var(--game-muted)", padding: "4px 12px", background: "rgba(255,170,0,0.06)", border: "1px solid rgba(255,170,0,0.2)", borderRadius: 4 }}>
                   ✅ The run will pause at every floor 100, 200, 300… so you can choose Portal (return to base) or Enchanting Table.
+                </div>
+              )}
+              <ToggleRow
+                label="🌀 Auto-Portal After Mega Boss"
+                note="After every mega boss (floor 100, 200…) automatically portal to base, deposit all stash/loot, then portal back to resume farming from the same floor"
+                active={leaveAloneAdvanced.autoPortal}
+                onClick={() => updateLAA({ autoPortal: !leaveAloneAdvanced.autoPortal })}
+              />
+              {leaveAloneAdvanced.autoPortal && (
+                <div style={{ fontSize: 12, color: "var(--game-muted)", padding: "4px 12px", background: "rgba(0,200,255,0.06)", border: "1px solid rgba(0,200,255,0.2)", borderRadius: 4 }}>
+                  ✅ On every mega boss floor the run silently portals to base (depositing all gear, mats, and books), then instantly returns to that floor. Walk never pauses. Disables “Show Mega Boss Reward” for that floor.
                 </div>
               )}
               <ToggleRow

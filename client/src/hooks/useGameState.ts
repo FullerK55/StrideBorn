@@ -28,6 +28,7 @@ export interface LeaveAloneAdvancedConfig {
   autoEquipHigherGS: boolean;  // master toggle: auto-equip any bag GS item that beats the equipped slot's GS
   autoEquipGSSlots: GearSlot[]; // per-slot whitelist — only auto-equip for slots in this list (empty = all slots)
   autoAdvanceDifficulty: boolean; // silently advance difficulty when max floor is reached, no popup
+  autoPortal: boolean; // after every mega boss, auto-portal to base, deposit stash, then portal back to resume
 }
 
 // ============================================================
@@ -1448,7 +1449,42 @@ export function useGameState(
               activeMegaBoss: { floor, rewardChosen: false },
             }));
           } else {
-            addLog(`☠️ Mega boss on floor ${floor} skipped (Leave Me Alone Mode).`, "log-muted");
+            // Leave Me Alone mode: check if autoPortal is enabled
+            if (leaveAloneAdvancedRef.current?.autoPortal) {
+              // Grant a portal silently, trigger base arrival (deposit stash), then portal back
+              const portalFloor = floor;
+              addLog(`🌀 Auto-Portal after mega boss on floor ${portalFloor} — depositing stash and returning!`, "log-gem");
+              showNotif(`🌀 AUTO-PORTAL: DEPOSITING STASH!`);
+              // Set portal state then arrive at base
+              setState((prev) => ({
+                ...prev,
+                portal: { floor: portalFloor, usedToBase: true, usedReturn: false },
+              }));
+              // Arrive at base (deposits stash/materials/books)
+              setTimeout(() => {
+                arriveAtBase();
+                // After base arrival, auto-portal back to the floor
+                setTimeout(() => {
+                  setState((prev) => {
+                    if (!prev.portal || prev.portal.usedReturn) return prev;
+                    addLog(`🌀 Auto-Portal return — back to floor ${prev.portal.floor}! Resuming...`, "log-gem");
+                    showNotif(`🌀 AUTO-PORTAL: BACK TO FLOOR ${prev.portal.floor}!`);
+                    return {
+                      ...prev,
+                      isInDungeon: true,
+                      isReturning: false,
+                      currentFloor: prev.portal.floor,
+                      steps: 0,
+                      bag: Array(prev.bagSize).fill(null),
+                      portal: { ...prev.portal, usedReturn: true },
+                    };
+                  });
+                  startWalkInterval();
+                }, 300);
+              }, 100);
+            } else {
+              addLog(`☠️ Mega boss on floor ${floor} skipped (Leave Me Alone Mode).`, "log-muted");
+            }
           }
         } else {
           // Run bossCount mini bosses (scales with difficulty)
