@@ -631,7 +631,7 @@ export default function Home() {
                     >
                       <span style={{ fontSize: 16 }}>{item.emoji}</span>
                       {item.gearScore !== undefined && item.gearScore > 0 && (
-                        <span style={{ position: "absolute", top: 1, left: 2, fontSize: 7, color: "#ffd700", lineHeight: 1, fontFamily: "'Press Start 2P', monospace" }}>GS{item.gearScore}</span>
+                        <span style={{ position: "absolute", top: 1, left: 2, fontSize: 7, color: "#ffd700", lineHeight: 1, fontFamily: "'Press Start 2P', monospace" }}>{item.gearScore}</span>
                       )}
                     </div>
                   ))}
@@ -651,7 +651,7 @@ export default function Home() {
                       <div className="pixel-font" style={{ fontSize: 8, color: RARITY_COLORS[selectedStash.rarity], marginBottom: 2 }}>
                         {selectedStash.emoji} {selectedStash.name}
                         {selectedStash.gearScore !== undefined && selectedStash.gearScore > 0 && (
-                          <span style={{ color: "#ffd700", marginLeft: 6 }}>[GS:{selectedStash.gearScore}]</span>
+                          <span style={{ color: "#ffd700", marginLeft: 6 }}>[{selectedStash.gearScore}]</span>
                         )}
                       </div>
                       <div style={{ fontSize: 11, color: "var(--game-muted)" }}>

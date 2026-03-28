@@ -69,7 +69,7 @@ function GearCard({ gear, onClick, label }: { gear: GearItem | null; onClick?: (
               position: "absolute", top: 4, right: 4,
               fontSize: 7, color: "#ffd700", fontFamily: "'Press Start 2P', monospace",
               background: "#1a1400", border: "1px solid #ffd700", borderRadius: 2, padding: "1px 3px",
-            }}>GS:{gear.gearScore}</div>
+            }}>{gear.gearScore}</div>
           )}
         </>
       ) : (
@@ -303,13 +303,13 @@ export default function GearTab({ state, actions, nerdMode }: Props) {
             <div style={{ fontSize: 11, color: RARITY_COLORS[detailGear.rarity], textAlign: "center", marginBottom: 4 }}>
               {detailGear.name}
               {detailGear.gearScore !== undefined && detailGear.gearScore > 0 && (
-                <span style={{ marginLeft: 6, fontSize: 9, color: "#ffd700", fontFamily: "'Press Start 2P', monospace" }}>[GS:{detailGear.gearScore}]</span>
+                <span style={{ marginLeft: 6, fontSize: 9, color: "#ffd700", fontFamily: "'Press Start 2P', monospace" }}>[{detailGear.gearScore}]</span>
               )}
             </div>
             <div style={{ fontSize: 9, color: "#aaa", textAlign: "center", marginBottom: 12 }}>
               {RARITY_LABELS[detailGear.rarity]} · {TIER_LABELS[detailGear.tier]}
               {nerdMode && detailGear.gearScore !== undefined && detailGear.gearScore === 0 && (
-                <span style={{ marginLeft: 6, color: "#ffd700" }}>[GS:0 — gateway]</span>
+                <span style={{ marginLeft: 6, color: "#ffd700" }}>[GS 0 — gateway]</span>
               )}
             </div>
 
