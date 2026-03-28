@@ -668,13 +668,30 @@ function getStatCount(rarity: GearRarity): number {
   }
 }
 
+// Slots that get 6 fully-random stats from ALL_STATS (duplicates allowed) when they are GS items
+const GS_FULL_RANDOM_SLOTS = new Set<GearSlot>(["helmet", "gloves", "chest", "weapon", "ring", "amulet"]);
+
 function rollStats(slot: GearSlot, rarity: GearRarity, tier: GearTier, gearScore = 0, maxQuality = false): { stat: string; value: number }[] {
-  const pool = SLOT_STATS[slot];
-  const count = getStatCount(rarity);
   const tierMult: Record<GearTier, number> = { iron: 1, steel: 1.5, shadow: 2.5, void: 4, celestial: 7, obsidian: 11, runic: 17, spectral: 26, primordial: 40, eternal: 60 };
   const tm = tierMult[tier];
   const rarityMult = { scrap: 0.5, common: 1, uncommon: 1.3, rare: 1.8, epic: 2.5, legendary: 3.5, mythic: 5 }[rarity];
   const gs = Math.max(0, gearScore);
+
+  // GS items on the 6 designated slots: 6 stats drawn from ALL_STATS, duplicates allowed
+  if (gearScore > 0 && GS_FULL_RANDOM_SLOTS.has(slot)) {
+    const chosen: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      chosen.push(ALL_STATS[Math.floor(Math.random() * ALL_STATS.length)]);
+    }
+    return chosen.map((stat) => ({
+      stat,
+      value: Math.floor(20 * tm * rarityMult) + gs,
+    }));
+  }
+
+  // Normal items (and non-listed GS slots): use slot-specific pool, no duplicates
+  const pool = SLOT_STATS[slot];
+  const count = getStatCount(rarity);
   const chosen: string[] = [];
   const shuffled = [...pool].sort(() => Math.random() - 0.5);
   for (let i = 0; i < Math.min(count, shuffled.length); i++) {
