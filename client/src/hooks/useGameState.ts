@@ -400,6 +400,8 @@ export interface BookItem {
   enchantment: string | null;  // null = blank book
   // Base value when placed on gear (floor roll: tier=iron, rarity=scrap)
   baseValue: number;
+  // Preserved stat value from the gear it was stripped from (used when applying)
+  statValue: number | null;
   sourceSlot: GearSlot | null; // slot the enchantment was stripped from (null if blank)
 }
 
@@ -1538,6 +1540,7 @@ export function useGameState(
                   isBook: true,
                   enchantment: preEnchanted ? ALL_STATS[Math.floor(Math.random() * ALL_STATS.length)] : null,
                   baseValue: bookBaseValue(),
+                  statValue: null,
                   sourceSlot: null,
                 };
                 const newBag = [...prev.bag];
@@ -1704,6 +1707,7 @@ export function useGameState(
                   isBook: true,
                   enchantment: preEnchanted ? ALL_STATS[Math.floor(Math.random() * ALL_STATS.length)] : null,
                   baseValue: bookBaseValue(),
+                  statValue: null,
                   sourceSlot: null,
                 };
                 const newBag = [...prev.bag];
@@ -1721,6 +1725,7 @@ export function useGameState(
                 isBook: true,
                 enchantment: preEnchanted ? ALL_STATS[Math.floor(Math.random() * ALL_STATS.length)] : null,
                 baseValue: bookBaseValue(),
+                statValue: null,
                 sourceSlot: null,
               };
               const bookVendorItem: VendorItem = {
@@ -2568,36 +2573,43 @@ export function useGameState(
   }, [addLog, startWalkInterval]);
 
   // Strip a stat from a stash gear piece and write it to a blank book on the bookshelf
-  const ENCHANTING_STRIP_COST = 500;
   const enchantingTableStrip = useCallback((gearId: string, statIdx: number) => {
     setState((prev) => {
       if (!prev.activeEnchantingTable) { showNotif("NO ENCHANTING TABLE ACTIVE!"); return prev; }
-      if (prev.gold < ENCHANTING_STRIP_COST) { showNotif(`NEED ${ENCHANTING_STRIP_COST} GOLD!`); return prev; }
+      // Requires one blank book in the stash
+      const blankBook = prev.stash.find((g) => {
+        const b = g as unknown as BookItem;
+        return b.isBook && !b.enchantment;
+      });
+      if (!blankBook) { showNotif("NEED A BLANK BOOK TO EXTRACT!"); return prev; }
       const gear = prev.stash.find((g) => g.id === gearId);
       if (!gear) { showNotif("ITEM NOT IN STASH!"); return prev; }
       if (statIdx < 0 || statIdx >= gear.stats.length) { showNotif("INVALID STAT!"); return prev; }
       const strippedStat = gear.stats[statIdx];
       // Remove stat from gear
       const newStats = gear.stats.filter((_, i) => i !== statIdx);
-      const newStash = prev.stash.map((g) => g.id === gearId ? { ...g, stats: newStats } : g);
-      // Create book and add to stash
+      // Remove the blank book and update the gear
+      const newStash = prev.stash
+        .filter((g) => g.id !== blankBook.id)
+        .map((g) => g.id === gearId ? { ...g, stats: newStats } : g);
+      // Create enchanted book preserving the actual stat value
       const book: BookItem = {
         id: `book_${Date.now()}_${Math.random().toString(36).slice(2)}`,
         isBook: true,
         enchantment: strippedStat.stat,
         baseValue: bookBaseValue(),
+        statValue: strippedStat.value,
         sourceSlot: gear.slot,
       };
-      addLog(`📖 Stripped "${strippedStat.stat}" from ${gear.name} into a book (-${ENCHANTING_STRIP_COST}g)`, "log-gem");
+      addLog(`📖 Extracted "${strippedStat.stat}" (${strippedStat.value}) from ${gear.name} → enchanted book (1 blank book consumed)`, "log-gem");
       return {
         ...prev,
-        gold: prev.gold - ENCHANTING_STRIP_COST,
         stash: [...newStash, book as unknown as GearItem],
       };
     });
   }, [addLog, showNotif]);
 
-   // Place a book's enchantment onto any stash gear piece (books stored in stash)
+  // Place a book's enchantment onto any stash gear piece (books stored in stash)
   const placeBookOnGear = useCallback((bookId: string, gearId: string) => {
     setState((prev) => {
       if (prev.isInDungeon) { showNotif("RETURN TO BASE TO USE BOOKS!"); return prev; }
@@ -2607,12 +2619,26 @@ export function useGameState(
       if (!book.enchantment) { showNotif("BLANK BOOK — USE ENCHANTING TABLE FIRST!"); return prev; }
       const gear = prev.stash.find((g) => g.id === gearId && !(g as unknown as BookItem).isBook);
       if (!gear) { showNotif("ITEM NOT IN STASH!"); return prev; }
-      // Add the enchantment stat at base value
-      const newStat = { stat: book.enchantment, value: book.baseValue };
+      // Enforce max stat cap: GS items cap at 6, non-GS use rarity-based count
+      const isGS = (gear.gearScore ?? 0) > 0;
+      const maxStats = isGS ? 6 : getStatCount(gear.rarity);
+      if (gear.stats.length >= maxStats) {
+        showNotif(`GEAR FULL — ${gear.name} already has max stats (${maxStats})!`);
+        return prev;
+      }
+      // Use preserved statValue if available, otherwise roll from gear's range
+      let statVal: number;
+      if (book.statValue !== null && book.statValue !== undefined) {
+        statVal = book.statValue;
+      } else {
+        const range = statRange(gear.tier, gear.rarity, gear.gearScore ?? 0);
+        statVal = Math.floor(Math.random() * (range.max - range.min + 1)) + range.min;
+      }
+      const newStat = { stat: book.enchantment, value: statVal };
       const newStash = prev.stash
         .filter((g) => g.id !== bookId)
         .map((g) => g.id === gearId ? { ...g, stats: [...g.stats, newStat] } : g);
-      addLog(`📖 Placed "${book.enchantment}" onto ${gear.name} (base value: ${book.baseValue})`, "log-gem");
+      addLog(`📖 Applied "${book.enchantment}" (+${statVal}) onto ${gear.name}`, "log-gem");
       return { ...prev, stash: newStash };
     });
   }, [addLog, showNotif]);
