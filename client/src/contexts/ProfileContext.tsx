@@ -1,99 +1,55 @@
 // ============================================================
-// Stride Born — Profile Context
-// Design: Up to 5 local profiles, each with independent save data
-// Auto-saves active profile every 5 seconds
-// Offline progress: each profile tracks when it went offline while in a dungeon
+// Stride Born — Profile Context (Supabase-backed)
+// Design: Single profile per authenticated user, stored in Supabase
+// First-time login: migrates any existing localStorage save automatically
+// Auto-saves to Supabase every 5 seconds (debounced)
 // ============================================================
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
 import type { DungeonDifficulty } from "@/hooks/useGameState";
 
 export interface Profile {
   id: string;
   name: string;
-  avatar: string; // emoji avatar
+  avatar: string;
   createdAt: number;
   lastPlayed: number;
-  // Saved game fields
   totalSteps: number;
   deepestFloor: number;
   currentDungeon: string;
   stash: unknown[];
-  bag: unknown[];       // (BagItem | null)[] — persisted so offline calc can use it
-  bagSize: number;      // persisted bag size including shop purchases
-  equippedGear: unknown; // Record<GearSlot, GearItem | null>
-  materials: unknown;   // Materials
-  runes: unknown;       // RuneInventory
+  bag: unknown[];
+  bagSize: number;
+  equippedGear: unknown;
+  materials: unknown;
+  runes: unknown;
   runs: number;
   lives: number;
   gold: number;
-  quests: unknown; // Quest[]
-  bookshelf: unknown[]; // BookItem[]
-  bookDropPity: number;  // pity counter for mini boss book drops
-  bookVendorPity: number; // floors cleared after floor 200 without book vendor spawning
-  enhancementXpPool: number; // global pool of Enhancement XP from Anvil
-  dungeonDifficulties: Record<string, DungeonDifficulty>; // per-dungeon difficulty
-  dismissedDifficultyFloor: Record<string, number>; // per-dungeon: max floor already prompted, so we don't re-fire
-  // Offline progress tracking
+  quests: unknown;
+  bookshelf: unknown[];
+  bookDropPity: number;
+  bookVendorPity: number;
+  enhancementXpPool: number;
+  dungeonDifficulties: Record<string, DungeonDifficulty>;
+  dismissedDifficultyFloor: Record<string, number>;
   offlineTimestamp: number | null;
   offlineFloor: number | null;
   offlineDungeon: string | null;
 }
 
-const PROFILES_KEY = "strideborn_profiles_v1";
-const ACTIVE_PROFILE_KEY = "strideborn_active_profile_v1";
-const MAX_PROFILES = 5;
+// Legacy localStorage keys (for one-time migration)
+const LEGACY_PROFILES_KEY = "strideborn_profiles_v1";
+const LEGACY_ACTIVE_KEY = "strideborn_active_profile_v1";
 
-const AVATARS = ["⚔️", "🧙", "🏹", "🛡️", "💀", "🔮", "🗡️", "🪄"];
+export const MAX_PROFILES = 1;
+export const AVATARS = ["⚔️", "🧙", "🏹", "🛡️", "💀", "🔮", "🗡️", "🪄"];
 
-function loadProfiles(): Profile[] {
-  try {
-    const raw = localStorage.getItem(PROFILES_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    // Migrate old profiles that don't have offline fields
-    return parsed.map((p: Profile) => ({
-      ...p,
-      equippedGear: p.equippedGear ?? { helmet: null, gloves: null, chest: null, pants: null, boots: null, backpack: null, weapon: null, ring: null, amulet: null },
-      materials: p.materials ?? { crude: 0, refined: 0, tempered: 0, voidmat: 0, celestialmat: 0 },
-      runes: p.runes ?? {},
-      bag: Array.isArray(p.bag) ? p.bag : [],
-      bagSize: (p.bagSize as number | undefined) ?? 5,
-      gold: (p.gold as number | undefined) ?? 0,
-      quests: Array.isArray(p.quests) ? p.quests : [],
-      bookshelf: Array.isArray(p.bookshelf) ? p.bookshelf : [],
-      bookDropPity: typeof p.bookDropPity === 'number' ? p.bookDropPity : 0,
-      bookVendorPity: typeof p.bookVendorPity === 'number' ? p.bookVendorPity : 0,
-      enhancementXpPool: typeof (p as Profile & { enhancementXpPool?: number }).enhancementXpPool === 'number' ? (p as Profile & { enhancementXpPool?: number }).enhancementXpPool! : 0,
-      dungeonDifficulties: (p as Profile & { dungeonDifficulties?: Record<string, DungeonDifficulty> }).dungeonDifficulties ?? {},
-      dismissedDifficultyFloor: (p as Profile & { dismissedDifficultyFloor?: Record<string, number> }).dismissedDifficultyFloor ?? {},
-      stash: Array.isArray(p.stash) ? p.stash : [],
-      runs: p.runs ?? 0,
-      lives: p.lives ?? 1,
-      offlineTimestamp: p.offlineTimestamp ?? null,
-      offlineFloor: p.offlineFloor ?? null,
-      offlineDungeon: p.offlineDungeon ?? null,
-    }));
-  } catch {
-    return [];
-  }
-}
-
-function saveProfiles(profiles: Profile[]) {
-  localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
-}
-
-function loadActiveProfileId(): string | null {
-  return localStorage.getItem(ACTIVE_PROFILE_KEY);
-}
-
-function saveActiveProfileId(id: string) {
-  localStorage.setItem(ACTIVE_PROFILE_KEY, id);
-}
-
-function createProfile(name: string, avatar: string): Profile {
+function makeDefaultProfile(id: string, name: string, avatar: string): Profile {
   return {
-    id: `profile_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    id,
     name: name.trim().slice(0, 16) || "Adventurer",
     avatar,
     createdAt: Date.now(),
@@ -123,13 +79,55 @@ function createProfile(name: string, avatar: string): Profile {
   };
 }
 
+async function migrateLegacyProfile(userId: string, username: string, avatar: string): Promise<Profile | null> {
+  try {
+    const raw = localStorage.getItem(LEGACY_PROFILES_KEY);
+    if (!raw) return null;
+    const parsed: Profile[] = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    const best = parsed.reduce((a, b) => ((a.deepestFloor ?? 0) >= (b.deepestFloor ?? 0) ? a : b));
+    const migrated: Profile = {
+      ...makeDefaultProfile(userId, username, avatar),
+      ...best,
+      id: userId,
+      name: username,
+      avatar,
+      lastPlayed: Date.now(),
+      equippedGear: best.equippedGear ?? { helmet: null, gloves: null, chest: null, pants: null, boots: null, backpack: null, weapon: null, ring: null, amulet: null },
+      materials: best.materials ?? { crude: 0, refined: 0, tempered: 0, voidmat: 0, celestialmat: 0 },
+      runes: best.runes ?? {},
+      bag: Array.isArray(best.bag) ? best.bag : [],
+      stash: Array.isArray(best.stash) ? best.stash : [],
+      bookshelf: Array.isArray(best.bookshelf) ? best.bookshelf : [],
+      quests: Array.isArray(best.quests) ? best.quests : [],
+      bagSize: (best.bagSize as number | undefined) ?? 5,
+      gold: (best.gold as number | undefined) ?? 0,
+      bookDropPity: typeof best.bookDropPity === 'number' ? best.bookDropPity : 0,
+      bookVendorPity: typeof best.bookVendorPity === 'number' ? best.bookVendorPity : 0,
+      enhancementXpPool: typeof (best as Profile & { enhancementXpPool?: number }).enhancementXpPool === 'number'
+        ? (best as Profile & { enhancementXpPool?: number }).enhancementXpPool! : 0,
+      dungeonDifficulties: (best as Profile & { dungeonDifficulties?: Record<string, DungeonDifficulty> }).dungeonDifficulties ?? {},
+      dismissedDifficultyFloor: (best as Profile & { dismissedDifficultyFloor?: Record<string, number> }).dismissedDifficultyFloor ?? {},
+      offlineTimestamp: best.offlineTimestamp ?? null,
+      offlineFloor: best.offlineFloor ?? null,
+      offlineDungeon: best.offlineDungeon ?? null,
+    };
+    return migrated;
+  } catch {
+    return null;
+  }
+}
+
 interface ProfileContextValue {
+  profile: Profile | null;
+  loading: boolean;
+  updateProfileSave: (data: Partial<Profile>) => void;
+  // Shim: existing components use profiles[] and activeProfile
   profiles: Profile[];
   activeProfile: Profile | null;
   selectProfile: (id: string) => void;
   createNewProfile: (name: string, avatar: string) => Profile;
   deleteProfile: (id: string) => void;
-  updateProfileSave: (data: Partial<Profile>) => void;
   switchingProfile: boolean;
   setSwitchingProfile: (v: boolean) => void;
 }
@@ -137,70 +135,124 @@ interface ProfileContextValue {
 const ProfileContext = createContext<ProfileContextValue | null>(null);
 
 export function ProfileProvider({ children }: { children: React.ReactNode }) {
-  const [profiles, setProfiles] = useState<Profile[]>(() => loadProfiles());
-  const [activeProfileId, setActiveProfileId] = useState<string | null>(() => loadActiveProfileId());
+  const { user } = useAuth();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
   const [switchingProfile, setSwitchingProfile] = useState(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSaveRef = useRef<Partial<Profile> | null>(null);
+  const profileRef = useRef<Profile | null>(null);
+  profileRef.current = profile;
 
-  const activeProfile = profiles.find((p) => p.id === activeProfileId) ?? null;
-
-  // Persist profiles whenever they change
+  // Load profile from Supabase when user logs in
   useEffect(() => {
-    saveProfiles(profiles);
-  }, [profiles]);
-
-  // Persist active profile id
-  useEffect(() => {
-    if (activeProfileId) saveActiveProfileId(activeProfileId);
-  }, [activeProfileId]);
-
-  const selectProfile = useCallback((id: string) => {
-    setActiveProfileId(id);
-    setSwitchingProfile(false);
-    setProfiles((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, lastPlayed: Date.now() } : p))
-    );
-  }, []);
-
-  const createNewProfile = useCallback((name: string, avatar: string): Profile => {
-    const profile = createProfile(name, avatar);
-    setProfiles((prev) => [...prev, profile]);
-    return profile;
-  }, []);
-
-  const deleteProfile = useCallback((id: string) => {
-    setProfiles((prev) => prev.filter((p) => p.id !== id));
-    if (activeProfileId === id) {
-      setActiveProfileId(null);
+    if (!user) {
+      setProfile(null);
+      setLoading(false);
+      return;
     }
-  }, [activeProfileId]);
+    setLoading(true);
+    (async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .single();
+
+      if (error || !data) {
+        const username = user.user_metadata?.username ?? user.email?.split("@")[0] ?? "Adventurer";
+        const avatar = user.user_metadata?.avatar ?? "⚔️";
+        const migrated = await migrateLegacyProfile(user.id, username, avatar);
+        const newProfile = migrated ?? makeDefaultProfile(user.id, username, avatar);
+        await supabase.from("profiles").upsert({
+          id: user.id,
+          username: newProfile.name,
+          avatar: newProfile.avatar,
+          last_played: new Date().toISOString(),
+          save_data: newProfile,
+        });
+        if (migrated) {
+          localStorage.removeItem(LEGACY_PROFILES_KEY);
+          localStorage.removeItem(LEGACY_ACTIVE_KEY);
+        }
+        setProfile(newProfile);
+      } else {
+        const saved = (data.save_data ?? {}) as Partial<Profile>;
+        const hydrated: Profile = {
+          ...makeDefaultProfile(user.id, data.username, data.avatar),
+          ...saved,
+          id: user.id,
+          name: data.username,
+          avatar: data.avatar,
+        };
+        setProfile(hydrated);
+      }
+      setLoading(false);
+    })();
+  }, [user]);
+
+  // Debounced Supabase save
+  const flushSave = useCallback(async (patch: Partial<Profile>) => {
+    if (!user || !profileRef.current) return;
+    const updated = { ...profileRef.current, ...patch, lastPlayed: Date.now() };
+    await supabase.from("profiles").update({
+      last_played: new Date().toISOString(),
+      save_data: updated,
+    }).eq("id", user.id);
+  }, [user]);
 
   const updateProfileSave = useCallback((data: Partial<Profile>) => {
-    setProfiles((prev) => {
-      const updated = prev.map((p) =>
-        p.id === activeProfileId
-          ? { ...p, ...data, lastPlayed: Date.now() }
-          : p
-      );
-      // Write to localStorage immediately — do not rely solely on the useEffect
-      // which fires asynchronously and can miss saves on tab close.
-      saveProfiles(updated);
-      return updated;
+    setProfile((prev) => {
+      if (!prev) return prev;
+      return { ...prev, ...data, lastPlayed: Date.now() };
     });
-  }, [activeProfileId]);
+    pendingSaveRef.current = { ...(pendingSaveRef.current ?? {}), ...data };
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      if (pendingSaveRef.current) {
+        flushSave(pendingSaveRef.current);
+        pendingSaveRef.current = null;
+      }
+    }, 5000);
+  }, [flushSave]);
+
+  // Flush on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      if (pendingSaveRef.current && user && profileRef.current) {
+        const updated = { ...profileRef.current, ...pendingSaveRef.current, lastPlayed: Date.now() };
+        supabase.from("profiles").update({
+          last_played: new Date().toISOString(),
+          save_data: updated,
+        }).eq("id", user.id);
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  // Shim for existing components
+  const profiles = profile ? [profile] : [];
+  const activeProfile = profile;
+  const selectProfile = useCallback((_id: string) => {}, []);
+  const createNewProfile = useCallback((_name: string, _avatar: string): Profile => {
+    return profile ?? makeDefaultProfile(user?.id ?? "local", _name, _avatar);
+  }, [profile, user]);
+  const deleteProfile = useCallback((_id: string) => {}, []);
 
   return (
-    <ProfileContext.Provider
-      value={{
-        profiles,
-        activeProfile,
-        selectProfile,
-        createNewProfile,
-        deleteProfile,
-        updateProfileSave,
-        switchingProfile,
-        setSwitchingProfile,
-      }}
-    >
+    <ProfileContext.Provider value={{
+      profile,
+      loading,
+      updateProfileSave,
+      profiles,
+      activeProfile,
+      selectProfile,
+      createNewProfile,
+      deleteProfile,
+      switchingProfile,
+      setSwitchingProfile,
+    }}>
       {children}
     </ProfileContext.Provider>
   );
@@ -211,5 +263,3 @@ export function useProfile() {
   if (!ctx) throw new Error("useProfile must be used inside ProfileProvider");
   return ctx;
 }
-
-export { MAX_PROFILES, AVATARS };

@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { useProfile } from "@/contexts/ProfileContext";
+import { useAuth } from "@/contexts/AuthContext";
 import type { GameState, GearRarity, GearSlot, AutoInvestConfig, LeaveAloneAdvancedConfig } from "@/hooks/useGameState";
 export type { AutoInvestConfig, LeaveAloneAdvancedConfig };
 
@@ -180,6 +181,37 @@ function RarityPicker({ label, value, allowNone, onChange }: { label: string; va
           >{RARITY_EMOJI[r]} {r.charAt(0).toUpperCase() + r.slice(1)}</button>
         ))}
       </div>
+    </div>
+  );
+}
+
+// Sign out row — shown at the bottom of settings
+function SignOutRow() {
+  const { signOut, user } = useAuth();
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <div style={{ padding: "12px 16px" }}>
+      {!confirming ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontSize: 13, color: "var(--game-muted)" }}>
+            Signed in as <strong style={{ color: "var(--game-text)" }}>{user?.email}</strong>
+          </div>
+          <button
+            onClick={() => setConfirming(true)}
+            style={{ background: "rgba(255,68,68,0.1)", border: "1px solid rgba(255,68,68,0.4)", color: "#FF4444", fontFamily: "'Press Start 2P', monospace", fontSize: 8, padding: "6px 10px", cursor: "pointer", borderRadius: 3 }}
+          >
+            SIGN OUT
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <span style={{ fontSize: 13, color: "var(--game-muted)" }}>Progress is saved. Sign out?</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={() => setConfirming(false)} style={{ background: "none", border: "1px solid var(--game-border)", color: "var(--game-muted)", fontFamily: "'Press Start 2P', monospace", fontSize: 8, padding: "6px 8px", cursor: "pointer", borderRadius: 3 }}>CANCEL</button>
+            <button onClick={() => signOut()} style={{ background: "rgba(255,68,68,0.15)", border: "1px solid rgba(255,68,68,0.5)", color: "#FF4444", fontFamily: "'Press Start 2P', monospace", fontSize: 8, padding: "6px 8px", cursor: "pointer", borderRadius: 3 }}>CONFIRM</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -649,6 +681,9 @@ export default function SettingsOverlay({
           </div>
         )}
 
+        {/* Sign Out */}
+        <div style={{ height: 1, background: "var(--game-border)", margin: "0 16px" }} />
+        <SignOutRow />
         {/* Version */}
         <div style={{ textAlign: "center", padding: "0 16px 4px", fontSize: 12, color: "rgba(100,100,150,0.5)", fontFamily: "'Press Start 2P', monospace" }}>
           STRIDE BORN v0.1.0
