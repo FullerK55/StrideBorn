@@ -13,7 +13,7 @@ import GearTab from "@/components/GearTab";
 import MaterialsTab from "@/components/MaterialsTab";
 import CraftTab from "@/components/CraftTab";
 import type { GearItem, MaterialItem } from "@/hooks/useGameState";
-import { MATERIAL_INFO, RARITY_LABELS, TIER_LABELS, TIER_ORDER } from "@/hooks/useGameState";
+import { MATERIAL_INFO, RARITY_LABELS, TIER_LABELS, TIER_ORDER, statRange } from "@/hooks/useGameState";
 import type { GearRarity, GearTier, GearSlot } from "@/hooks/useGameState";
 import VendorModal from "@/components/VendorModal";
 import AnvilModal from "@/components/AnvilModal";
@@ -53,6 +53,8 @@ export default function Home() {
   const [showSettings, setShowSettings] = useState(false);
   const [nerdMode, setNerdMode] = useState<boolean>(() => loadNerdMode());
   const [bagSortMode, setBagSortMode] = useState<"none"|"rarity"|"tier"|"slot"|"gs">("none");
+  const [stashSortMode, setStashSortMode] = useState<"none"|"rarity"|"tier"|"slot"|"gs">("none");
+  const [selectedStashId, setSelectedStashId] = useState<string | null>(null);
 
   const RARITY_ORD: GearRarity[] = ["scrap","common","uncommon","rare","epic","legendary","mythic"];
   const SLOT_ORD: GearSlot[] = ["helmet","chest","pants","gloves","boots","backpack","weapon","ring","amulet"];
@@ -86,6 +88,25 @@ export default function Home() {
     });
     return [...sorted, ...nulls];
   }, [state.bag, state.bagSize, bagSortMode]);
+
+  const sortedStash = useMemo(() => {
+    if (stashSortMode === "none") return [...state.stash];
+    return [...state.stash].sort((a, b) => {
+      if (stashSortMode === "rarity") {
+        return RARITY_ORD.indexOf(b.rarity) - RARITY_ORD.indexOf(a.rarity);
+      }
+      if (stashSortMode === "tier") {
+        return TIER_ORDER.indexOf(b.tier as GearTier) - TIER_ORDER.indexOf(a.tier as GearTier);
+      }
+      if (stashSortMode === "slot") {
+        return SLOT_ORD.indexOf(a.slot as GearSlot) - SLOT_ORD.indexOf(b.slot as GearSlot);
+      }
+      if (stashSortMode === "gs") {
+        return (b.gearScore ?? -1) - (a.gearScore ?? -1);
+      }
+      return 0;
+    });
+  }, [state.stash, stashSortMode]);
 
   const isActive = state.isInDungeon || state.isReturning;
 
@@ -567,71 +588,141 @@ export default function Home() {
           )}
 
           {/* STASH TAB */}
-          {activeTab === "stash" && (
+          {activeTab === "stash" && (() => {
+            const selectedStash = selectedStashId ? state.stash.find(g => g.id === selectedStashId) ?? null : null;
+            const range = selectedStash ? statRange(selectedStash.tier as GearTier, selectedStash.rarity, selectedStash.gearScore) : null;
+            const equippedInSlot = selectedStash ? state.equippedGear[selectedStash.slot] : null;
+            return (
             <div>
+              {/* Header row: count + sort button */}
               <div style={{ fontSize: 13, color: "var(--game-muted)", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span>STASH ({state.stash.length} item{state.stash.length !== 1 ? 's' : ''} · unlimited)</span>
-                <span style={{ color: "var(--green)", fontSize: 12 }}>
-                  {state.currentFloor === 0 ? "✓ AT BASE" : "return to access"}
-                </span>
-              </div>
-              <div style={{ overflowY: "auto", maxHeight: "calc(5 * ((min(480px, 100vw) - 56px) / 6) + 4 * 3px)", scrollbarWidth: "thin", scrollbarColor: "var(--game-border) transparent" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 3 }}>
-                {state.stash.map((item, i) => (
-                  <div
-                    key={item.id ?? i}
-                    title={item.name}
-                    style={{
-                      background: "#080810",
-                      border: `1px solid ${RARITY_COLORS[item.rarity] ?? "#2a2a4a"}`,
-                      aspectRatio: "1",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 16,
-                      position: "relative",
-                    }}
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <span style={{ color: "var(--green)", fontSize: 12 }}>
+                    {state.currentFloor === 0 ? "✓ AT BASE" : "return to access"}
+                  </span>
+                  <button
+                    onClick={() => setStashSortMode(m => m === "none" ? "rarity" : m === "rarity" ? "tier" : m === "tier" ? "slot" : m === "slot" ? "gs" : "none")}
+                    style={{ fontSize: 9, padding: "2px 6px", background: stashSortMode !== "none" ? "var(--gold)" : "#1a1a2e", color: stashSortMode !== "none" ? "#000" : "var(--game-muted)", border: "1px solid var(--game-border)", cursor: "pointer", fontFamily: "'Press Start 2P', monospace", letterSpacing: 0.5 }}
                   >
-                    <div style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {stashSortMode === "none" ? "SORT" : stashSortMode === "rarity" ? "▼ RARITY" : stashSortMode === "tier" ? "▼ TIER" : stashSortMode === "slot" ? "▼ SLOT" : "▼ GS"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Stash grid */}
+              <div style={{ overflowY: "auto", maxHeight: "calc(5 * ((min(480px, 100vw) - 56px) / 6) + 4 * 3px)", scrollbarWidth: "thin", scrollbarColor: "var(--game-border) transparent" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 3 }}>
+                  {sortedStash.map((item) => (
+                    <div
+                      key={item.id}
+                      onClick={() => setSelectedStashId(prev => prev === item.id ? null : item.id)}
+                      style={{
+                        background: selectedStashId === item.id ? `${RARITY_COLORS[item.rarity]}22` : "#080810",
+                        border: `${selectedStashId === item.id ? 2 : 1}px solid ${RARITY_COLORS[item.rarity] ?? "#2a2a4a"}`,
+                        aspectRatio: "1",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 16,
+                        position: "relative",
+                        cursor: "pointer",
+                      }}
+                    >
                       <span style={{ fontSize: 16 }}>{item.emoji}</span>
-                      {!state.isInDungeon && !state.isReturning && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); actions.salvageGear(item.id); }}
-                          title="Salvage"
-                          style={{
-                            position: "absolute",
-                            bottom: 1,
-                            right: 1,
-                            fontSize: 8,
-                            background: "rgba(0,0,0,0.8)",
-                            border: "none",
-                            color: "#ff6644",
-                            cursor: "pointer",
-                            padding: "1px 2px",
-                            lineHeight: 1,
-                          }}
-                        >
-                          🔨
-                        </button>
+                      {item.gearScore !== undefined && item.gearScore > 0 && (
+                        <span style={{ position: "absolute", top: 1, left: 2, fontSize: 7, color: "#ffd700", lineHeight: 1, fontFamily: "'Press Start 2P', monospace" }}>GS{item.gearScore}</span>
                       )}
                     </div>
-                  </div>
-                ))}
-                {/* Empty placeholder slot to show stash is active */}
-                {state.stash.length === 0 && (
-                  <div style={{ gridColumn: "1 / -1", fontFamily: "'VT323', monospace", fontSize: 14, color: "#444", textAlign: "center", padding: "16px 0" }}>
-                    Stash is empty
-                  </div>
-                )}
+                  ))}
+                  {state.stash.length === 0 && (
+                    <div style={{ gridColumn: "1 / -1", fontFamily: "'VT323', monospace", fontSize: 14, color: "#444", textAlign: "center", padding: "16px 0" }}>
+                      Stash is empty
+                    </div>
+                  )}
+                </div>
               </div>
-              </div>
-              {!state.isInDungeon && !state.isReturning && state.stash.length > 0 && (
-                <div style={{ marginTop: 6, fontSize: 11, color: "#555", fontFamily: "'VT323', monospace" }}>
-                  🔨 = salvage for materials
+
+              {/* Detail panel */}
+              {selectedStash && (
+                <div style={{ marginTop: 8, background: "#0a0a1a", border: `2px solid ${RARITY_COLORS[selectedStash.rarity] ?? "var(--game-border)"}`, padding: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                    <div>
+                      <div className="pixel-font" style={{ fontSize: 8, color: RARITY_COLORS[selectedStash.rarity], marginBottom: 2 }}>
+                        {selectedStash.emoji} {selectedStash.name}
+                        {selectedStash.gearScore !== undefined && selectedStash.gearScore > 0 && (
+                          <span style={{ color: "#ffd700", marginLeft: 6 }}>[GS:{selectedStash.gearScore}]</span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--game-muted)" }}>
+                        {TIER_LABELS[selectedStash.tier as GearTier] ?? selectedStash.tier} · {RARITY_LABELS[selectedStash.rarity]} · {selectedStash.slot}
+                        {selectedStash.enhancementXp > 0 && (
+                          <span style={{ color: "#88aaff", marginLeft: 6 }}>XP:{selectedStash.enhancementXp}</span>
+                        )}
+                      </div>
+                    </div>
+                    <button onClick={() => setSelectedStashId(null)} style={{ background: "none", border: "none", color: "var(--game-muted)", cursor: "pointer", fontSize: 14 }}>✕</button>
+                  </div>
+
+                  {/* Stats */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 }}>
+                    {selectedStash.stats.map((stat, i) => {
+                      const r = range ? statRange(selectedStash.tier as GearTier, selectedStash.rarity, selectedStash.gearScore) : null;
+                      const pct = r ? Math.round(((stat.value - r.min) / Math.max(1, r.max - r.min)) * 100) : null;
+                      const barColor = pct === null ? "#555" : pct >= 80 ? "#44ff88" : pct >= 50 ? "#ffcc44" : "#ff4444";
+                      const isPercent = stat.stat.includes("Chance") || stat.stat.includes("Find") || stat.stat.includes("Efficiency") || stat.stat.includes("Speed") || stat.stat.includes("Yield") || stat.stat.includes("Rarity") || stat.stat.includes("Rate") || stat.stat.includes("Luck") || stat.stat.includes("Penetration") || stat.stat.includes("Lifesteal") || stat.stat.includes("Reduction") || stat.stat.includes("Overflow") || stat.stat.includes("Preservation") || stat.stat.includes("Insurance");
+                      return (
+                        <div key={i}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                            <span style={{ color: "var(--game-muted)" }}>{stat.stat}</span>
+                            <span style={{ color: "#ccc" }}>
+                              {stat.value.toFixed(1)}{isPercent ? "%" : ""}
+                              {nerdMode && r && (
+                                <span style={{ color: "#555", fontSize: 10, marginLeft: 4 }}>({r.min.toFixed(1)}–{r.max.toFixed(1)})</span>
+                              )}
+                            </span>
+                          </div>
+                          {nerdMode && pct !== null && (
+                            <div style={{ height: 2, background: "#1a1a2e", marginTop: 1 }}>
+                              <div style={{ width: `${pct}%`, height: "100%", background: barColor, transition: "width 0.2s" }} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Currently equipped in that slot */}
+                  {equippedInSlot && (
+                    <div style={{ fontSize: 11, color: "var(--game-muted)", marginBottom: 6, padding: "4px 6px", background: "#050510", border: "1px solid #2a2a4a" }}>
+                      Currently equipped: <span style={{ color: RARITY_COLORS[equippedInSlot.rarity] }}>{equippedInSlot.emoji} {equippedInSlot.name}</span>
+                    </div>
+                  )}
+
+                  {/* Action buttons */}
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {!state.isInDungeon && !state.isReturning && (
+                      <button
+                        onClick={() => { actions.equipFromStash(selectedStash.id); setSelectedStashId(null); }}
+                        style={{ flex: 2, background: "none", border: "2px solid var(--gold)", color: "var(--gold)", fontFamily: "'Press Start 2P', monospace", fontSize: 8, padding: "6px 4px", cursor: "pointer" }}
+                      >
+                        ⚔️ EQUIP
+                      </button>
+                    )}
+                    {!state.isInDungeon && !state.isReturning && (
+                      <button
+                        onClick={() => { actions.salvageGear(selectedStash.id); setSelectedStashId(null); }}
+                        style={{ flex: 1, background: "none", border: "2px solid #ff6644", color: "#ff6644", fontFamily: "'Press Start 2P', monospace", fontSize: 8, padding: "6px 4px", cursor: "pointer" }}
+                      >
+                        🔨 SALVAGE
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
-          )}
+            );
+          })()}
 
           {/* GEAR TAB */}
           {activeTab === "gear" && (

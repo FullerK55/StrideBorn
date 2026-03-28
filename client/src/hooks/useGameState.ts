@@ -538,6 +538,7 @@ export interface GameActions {
   selectDungeon: (id: string) => void;
   dropBagItem: (idx: number) => void;
   equipFromBag: (bagIdx: number) => void;
+  equipFromStash: (gearId: string) => void;
   craftConvert: (from: MaterialType) => void;
   craftReroll: (gearId: string) => void;
   craftSocket: (gearId: string) => void;
@@ -1865,6 +1866,25 @@ export function useGameState(
     });
   }, [addLog]);
 
+  const equipFromStash = useCallback((gearId: string) => {
+    setState((prev) => {
+      if (prev.isInDungeon) { showNotif("RETURN TO BASE TO EQUIP!"); return prev; }
+      const idx = prev.stash.findIndex((g) => g.id === gearId);
+      if (idx === -1) return prev;
+      const gear = prev.stash[idx];
+      const currentEquipped = prev.equippedGear[gear.slot];
+      const newStash = [...prev.stash];
+      if (currentEquipped) {
+        newStash[idx] = currentEquipped; // swap old equipped into stash slot
+      } else {
+        newStash.splice(idx, 1); // no current equipped, just remove from stash
+      }
+      const newEquipped = { ...prev.equippedGear, [gear.slot]: gear };
+      addLog(`⚔️ Equipped ${gear.name} [${RARITY_LABELS[gear.rarity]}] from stash`, "log-gold");
+      return { ...prev, stash: newStash, equippedGear: newEquipped };
+    });
+  }, [addLog, showNotif]);
+
   const equipFromBag = useCallback((bagIdx: number) => {
     setState((prev) => {
       const item = prev.bag[bagIdx];
@@ -2624,6 +2644,7 @@ export function useGameState(
       selectDungeon,
       dropBagItem,
       equipFromBag,
+      equipFromStash,
       craftConvert,
       craftReroll,
       craftSocket,
