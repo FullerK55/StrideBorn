@@ -18,6 +18,7 @@ export interface AutoInvestConfig {
   goldReserve: number;
   anvilBreakMaxRarity: GearRarity | null;
   anvilBreakFromStash: boolean;    // also break stash gear (not just bag)
+  fenceSellMaxRarity: GearRarity | null; // auto-sell bag gear at or below this rarity to fence
 }
 
 // ---- Advanced Leave Me Alone config ----
@@ -1509,21 +1510,42 @@ export function useGameState(
         });
       }
 
-      // Fence spawn: after floor 50, every 20-30 floors (no auto-invest — fence is sell-only)
-      if (!leaveAloneModeRef.current) {
-        setState((prev) => {
-          if (prev.activeVendor || prev.activeAnvil || prev.activeFence) return prev;
-          if (floor > 50) {
-            const fenceInterval = 20 + Math.floor(Math.random() * 11);
-            if (floor % fenceInterval === 0) {
+      // Fence spawn: after floor 50, every 20-30 floors
+      if (floor > 50) {
+        const fenceInterval = 20 + Math.floor(Math.random() * 11);
+        if (floor % fenceInterval === 0) {
+          const ai = autoInvestRef.current;
+          if (ai?.enabled && ai.fenceSellMaxRarity !== null) {
+            // --- Silent auto-invest fence execution ---
+            setState((prev) => {
+              if (prev.activeVendor || prev.activeAnvil || prev.activeFence) return prev;
+              const toSell = prev.bag
+                .filter((b): b is GearItem => b !== null && 'isGear' in b && rarityLte((b as GearItem).rarity, ai.fenceSellMaxRarity!))
+                .map((g) => g as GearItem);
+              if (toSell.length === 0) return prev;
+              const newBag = [...prev.bag];
+              let totalGold = 0;
+              toSell.forEach((gear) => {
+                const idx = newBag.findIndex((b) => b !== null && 'isGear' in b && (b as GearItem).id === gear.id);
+                if (idx >= 0) newBag[idx] = null;
+                const baseCost = { scrap: 10, common: 30, uncommon: 60, rare: 120, epic: 250, legendary: 500, mythic: 1000 }[gear.rarity];
+                const price = Math.max(1, Math.floor((baseCost + gear.stats.length * 5) * FENCE_SELL_MULT));
+                totalGold += price;
+                addLog(`💸 Auto-sold ${gear.name} for ${price}g`, "log-muted");
+              });
+              showNotif(`💸 AUTO-FENCE: +${totalGold}g (${toSell.length} items)`);
+              return { ...prev, bag: newBag, gold: prev.gold + totalGold };
+            });
+          } else if (!leaveAloneModeRef.current) {
+            setState((prev) => {
+              if (prev.activeVendor || prev.activeAnvil || prev.activeFence) return prev;
               stopWalkInterval();
               showNotif(`💸 FENCE ON FLOOR ${floor}!`);
               addLog(`💸 A shady fence lurks on floor ${floor}...`, "log-muted");
               return { ...prev, activeFence: { floor } };
-            }
+            });
           }
-          return prev;
-        });
+        }
       }
 
       // Quest progress: reach_floor

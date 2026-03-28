@@ -55,6 +55,7 @@ const DEFAULT_AUTO_INVEST: AutoInvestConfig = {
   goldReserve: 2000,
   anvilBreakMaxRarity: "uncommon",
   anvilBreakFromStash: false,
+  fenceSellMaxRarity: null,
 };
 
 export function loadAutoInvest(): AutoInvestConfig {
@@ -212,6 +213,10 @@ export default function SettingsOverlay({
   }
 
   const bookDropPct = state ? (2 + (state.bookDropPity ?? 0)) : null;
+  // Scholar spawn: 2% base + 0.01% per floor of pity, only after floor 200
+  const scholarSpawnPct = (state && state.currentFloor > 200)
+    ? parseFloat((2 + (state.bookVendorPity ?? 0) * 0.01).toFixed(2))
+    : null;
 
   const sectionHeader = (label: string) => (
     <div className="pixel-font" style={{
@@ -288,9 +293,19 @@ export default function SettingsOverlay({
                 <span style={{ fontSize: 18 }}>📖</span>
                 <div style={{ flex: 1 }}>
                   <div className="pixel-font" style={{ fontSize: 9, color: "#66ff88", marginBottom: 2 }}>{bookDropPct}% book drop</div>
-                  <div style={{ fontSize: 12, color: "var(--game-muted)" }}>Next mini boss · {state.bookDropPity} miss{state.bookDropPity !== 1 ? "es" : ""} since last drop</div>
+                  <div style={{ fontSize: 12, color: "var(--game-muted)" }}>Next mini boss · {state!.bookDropPity} miss{state!.bookDropPity !== 1 ? "es" : ""} since last drop</div>
                 </div>
                 <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#444", textAlign: "right" }}>base 2%<br />+1%/miss</div>
+              </div>
+            )}
+            {nerdMode && scholarSpawnPct !== null && (
+              <div style={{ marginTop: 8, background: "#0a0a1a", border: "1px solid #1a2a3a", padding: "8px 10px", borderRadius: 3, display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 18 }}>📚</span>
+                <div style={{ flex: 1 }}>
+                  <div className="pixel-font" style={{ fontSize: 9, color: "#66aaff", marginBottom: 2 }}>{scholarSpawnPct}% scholar spawn</div>
+                  <div style={{ fontSize: 12, color: "var(--game-muted)" }}>Wandering Scholar · {state!.bookVendorPity ?? 0} floor{(state!.bookVendorPity ?? 0) !== 1 ? "s" : ""} of pity</div>
+                </div>
+                <div style={{ fontFamily: "'VT323', monospace", fontSize: 12, color: "#444", textAlign: "right" }}>base 2%<br />+0.01%/flr</div>
               </div>
             )}
           </div>
@@ -450,6 +465,22 @@ export default function SettingsOverlay({
                     ⚠️ Gear at or below <strong style={{ color: "var(--game-text)" }}>{autoInvest.anvilBreakMaxRarity}</strong>{autoInvest.anvilBreakFromStash ? " in your bag AND stash" : " in your bag"} will be automatically broken down into Enhancement XP when an anvil spawns.
                   </div>
                 </>
+              )}
+
+              {/* Divider */}
+              <div className="pixel-font" style={{ fontSize: 7, color: "var(--game-muted)", letterSpacing: 2, marginTop: 4 }}>FENCE RULES</div>
+
+              {/* Auto-sell to fence */}
+              <RarityPicker
+                label="💸 Auto-Sell to Fence — max rarity (OFF = skip fence)"
+                value={autoInvest.fenceSellMaxRarity}
+                allowNone
+                onChange={(v) => updateAI({ fenceSellMaxRarity: v })}
+              />
+              {autoInvest.fenceSellMaxRarity !== null && (
+                <div style={{ fontSize: 12, color: "var(--game-muted)", padding: "4px 12px", background: "rgba(255,200,0,0.06)", border: "1px solid rgba(255,200,0,0.2)", borderRadius: 4 }}>
+                  💸 Bag gear at or below <strong style={{ color: "var(--game-text)" }}>{autoInvest.fenceSellMaxRarity}</strong> will be silently sold to the fence for gold (at fence rates: 15% of base value) when a fence spawns.
+                </div>
               )}
             </div>
           )}
