@@ -50,7 +50,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>("bag");
   const [showSettings, setShowSettings] = useState(false);
   const [nerdMode, setNerdMode] = useState<boolean>(() => loadNerdMode());
-  const [bagSortMode, setBagSortMode] = useState<"none"|"rarity"|"tier"|"slot">("none");
+  const [bagSortMode, setBagSortMode] = useState<"none"|"rarity"|"tier"|"slot"|"gs">("none");
 
   const RARITY_ORD: GearRarity[] = ["scrap","common","uncommon","rare","epic","legendary","mythic"];
   const SLOT_ORD: GearSlot[] = ["helmet","chest","pants","gloves","boots","backpack","weapon","ring","amulet"];
@@ -74,6 +74,11 @@ export default function Home() {
         const ai = 'isGear' in a ? SLOT_ORD.indexOf((a as GearItem).slot as GearSlot) : 99;
         const bi = 'isGear' in b ? SLOT_ORD.indexOf((b as GearItem).slot as GearSlot) : 99;
         return ai - bi;
+      }
+      if (bagSortMode === "gs") {
+        const ai = 'isGear' in a ? ((a as GearItem).gearScore ?? -1) : -2;
+        const bi = 'isGear' in b ? ((b as GearItem).gearScore ?? -1) : -2;
+        return bi - ai; // highest GS first
       }
       return 0;
     });
@@ -481,14 +486,11 @@ export default function Home() {
                 <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                   <span style={{ fontSize: 12 }}>tap item to drop</span>
                   <button
-                    onClick={() => setBagSortMode(m => {
-                      const modes: Array<"none"|"rarity"|"tier"|"slot"> = ["none","rarity","tier","slot"];
-                      return modes[(modes.indexOf(m) + 1) % modes.length];
-                    })}
-                    title="Cycle sort: none → rarity → tier → slot"
+                    onClick={() => setBagSortMode((m) => m === "none" ? "rarity" : m === "rarity" ? "tier" : m === "tier" ? "slot" : m === "slot" ? "gs" : "none")}
+                    title="Cycle sort: none → rarity → tier → slot → GS"
                     style={{ fontSize: 9, padding: "2px 6px", background: bagSortMode !== "none" ? "var(--gold)" : "#1a1a2e", color: bagSortMode !== "none" ? "#000" : "var(--game-muted)", border: "1px solid var(--game-border)", cursor: "pointer", fontFamily: "'Press Start 2P', monospace", letterSpacing: 0.5 }}
                   >
-                    {bagSortMode === "none" ? "SORT" : bagSortMode === "rarity" ? "▼ RARITY" : bagSortMode === "tier" ? "▼ TIER" : "▼ SLOT"}
+                    {bagSortMode === "none" ? "SORT" : bagSortMode === "rarity" ? "▼ RARITY" : bagSortMode === "tier" ? "▼ TIER" : bagSortMode === "slot" ? "▼ SLOT" : "▼ GS"}
                   </button>
                 </div>
               </div>

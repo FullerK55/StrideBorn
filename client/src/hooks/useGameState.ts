@@ -298,6 +298,7 @@ export interface GearItem {
   runes: (string | null)[];  // rune ids in each socket
   enhancementXp: number;    // XP accumulated toward next tier upgrade
   isGear: true;
+  gearScore?: number;   // GS level — only on Eternal Mythic items, hidden unless Nerd Mode
 }
 
 export interface MaterialItem {
@@ -396,14 +397,16 @@ export interface ActiveEnchantingTable {
 }
 
 // Stat range helper — returns { min, max } for a stat on a given tier+rarity
-export function statRange(tier: GearTier, rarity: GearRarity): { min: number; max: number } {
+// gearScore adds +1 to both min and max per GS level (per spec)
+export function statRange(tier: GearTier, rarity: GearRarity, gearScore = 0): { min: number; max: number } {
   const tierMult: Record<GearTier, number> = { iron: 1, steel: 1.5, shadow: 2.5, void: 4, celestial: 7, obsidian: 11, runic: 17, spectral: 26, primordial: 40, eternal: 60 };
   const rarityMult: Record<GearRarity, number> = { scrap: 0.5, common: 1, uncommon: 1.3, rare: 1.8, epic: 2.5, legendary: 3.5, mythic: 5 };
   const tm = tierMult[tier];
   const rm = rarityMult[rarity];
+  const gs = Math.max(0, gearScore);
   return {
-    min: Math.floor(5 * tm * rm),
-    max: Math.floor(20 * tm * rm),
+    min: Math.floor(5 * tm * rm) + gs,
+    max: Math.floor(20 * tm * rm) + gs,
   };
 }
 
@@ -639,42 +642,46 @@ function getStatCount(rarity: GearRarity): number {
   }
 }
 
-function rollStats(slot: GearSlot, rarity: GearRarity, tier: GearTier): { stat: string; value: number }[] {
+function rollStats(slot: GearSlot, rarity: GearRarity, tier: GearTier, gearScore = 0): { stat: string; value: number }[] {
   const pool = SLOT_STATS[slot];
   const count = getStatCount(rarity);
   const tierMult: Record<GearTier, number> = { iron: 1, steel: 1.5, shadow: 2.5, void: 4, celestial: 7, obsidian: 11, runic: 17, spectral: 26, primordial: 40, eternal: 60 };
   const tm = tierMult[tier];
   const rarityMult = { scrap: 0.5, common: 1, uncommon: 1.3, rare: 1.8, epic: 2.5, legendary: 3.5, mythic: 5 }[rarity];
+  const gs = Math.max(0, gearScore);
   const chosen: string[] = [];
   const shuffled = [...pool].sort(() => Math.random() - 0.5);
   for (let i = 0; i < Math.min(count, shuffled.length); i++) {
     chosen.push(shuffled[i]);
   }
+  // GS adds +gs to the min of the roll range, shifting both ends up by gs
   return chosen.map((stat) => ({
     stat,
-    value: Math.floor((5 + Math.random() * 15) * tm * rarityMult),
+    value: Math.floor((5 + Math.random() * 15) * tm * rarityMult) + gs,
   }));
 }
 
 let gearIdCounter = 0;
-function generateGearItem(slot: GearSlot, tier: GearTier, rarity: GearRarity): GearItem {
+function generateGearItem(slot: GearSlot, tier: GearTier, rarity: GearRarity, gearScore = 0): GearItem {
   const slotInfo = GEAR_SLOTS.find((s) => s.id === slot)!;
   const tierLabel: Record<GearTier, string> = { iron: "Iron", steel: "Steel", shadow: "Shadow", void: "Void", celestial: "Celestial", obsidian: "Obsidian", runic: "Runic", spectral: "Spectral", primordial: "Primordial", eternal: "Eternal" };
   const tLabel = tierLabel[tier];
   const sockets = getSocketCount(rarity);
-  return {
+  const item: GearItem = {
     id: `gear_${Date.now()}_${gearIdCounter++}`,
     slot,
     tier,
     rarity,
     name: `${tLabel} ${slotInfo.label}`,
     emoji: slotInfo.emoji,
-    stats: rollStats(slot, rarity, tier),
+    stats: rollStats(slot, rarity, tier, gearScore),
     sockets,
     runes: Array(sockets).fill(null),
     enhancementXp: 0,
     isGear: true,
   };
+  if (gearScore > 0) item.gearScore = gearScore;
+  return item;
 }
 
 function rollRandomSlot(): GearSlot {
@@ -1279,6 +1286,38 @@ export function useGameState(
       if (floor % 10 === 0) {
         const isMegaBoss = floor % 100 === 0;
         if (isMegaBoss) {
+          // GS drop roll for mega boss (every 100 floors) — runs regardless of Leave Me Alone mode
+          setState((prev) => {
+            const SLOTS: GearSlot[] = ["helmet","gloves","chest","pants","boots","backpack","weapon","ring","amulet"];
+            const unlockedSlots = SLOTS.filter((sl) => {
+              const g = prev.equippedGear[sl];
+              return g && g.tier === "eternal" && g.rarity === "mythic";
+            });
+            if (unlockedSlots.length === 0) return prev;
+            // Mega boss drop table: GS+1 (2%), GS+2 (1%), GS+3 (0.5%), GS+4 (0.25%)
+            const dropLevels = [{ offset: 1, chance: 0.02 }, { offset: 2, chance: 0.01 }, { offset: 3, chance: 0.005 }, { offset: 4, chance: 0.0025 }];
+            let droppedOffset = 0;
+            for (const { offset, chance } of dropLevels) {
+              if (Math.random() < chance) { droppedOffset = offset; break; }
+            }
+            if (droppedOffset === 0) return prev;
+            const highestGS = Math.max(...unlockedSlots.map((sl) => prev.equippedGear[sl]?.gearScore ?? 0));
+            const weights = unlockedSlots.map((sl) => ({ sl, w: (highestGS - (prev.equippedGear[sl]?.gearScore ?? 0)) + 1 }));
+            const totalW = weights.reduce((s, x) => s + x.w, 0);
+            let rand = Math.random() * totalW;
+            let chosenSlot: GearSlot = unlockedSlots[0];
+            for (const { sl, w } of weights) { rand -= w; if (rand <= 0) { chosenSlot = sl; break; } }
+            const equippedGs = prev.equippedGear[chosenSlot]?.gearScore ?? 0;
+            const newGs = equippedGs + droppedOffset;
+            const emptySlot = prev.bag.findIndex((s) => s === null);
+            if (emptySlot === -1) { addLog(`⭐ GS ${newGs} ${chosenSlot} dropped but bag is full!`, "log-muted"); return prev; }
+            const gsItem = generateGearItem(chosenSlot, "eternal", "mythic", newGs);
+            const newBag = [...prev.bag];
+            newBag[emptySlot] = gsItem;
+            addLog(`🌟 MEGA BOSS GS ${newGs} ${gsItem.name} dropped!`, "log-gem");
+            showNotif(`🌟 MEGA BOSS GS ${newGs} DROP!`);
+            return { ...prev, bag: newBag };
+          });
           const showReward = !leaveAloneModeRef.current ||
             (leaveAloneModeRef.current && (leaveAloneAdvancedRef.current?.showMegaBossReward ?? false));
           if (showReward) {
@@ -1295,6 +1334,40 @@ export function useGameState(
         } else {
           showNotif(`💀 BOSS FLOOR ${floor}!`);
           addLog(`💀 Mini boss on floor ${floor}!`, "log-red");
+          // GS drop roll for standard boss (every 10 floors)
+          setState((prev) => {
+            // Only roll if at least one slot has an Eternal Mythic item equipped
+            const SLOTS: GearSlot[] = ["helmet","gloves","chest","pants","boots","backpack","weapon","ring","amulet"];
+            const unlockedSlots = SLOTS.filter((sl) => {
+              const g = prev.equippedGear[sl];
+              return g && g.tier === "eternal" && g.rarity === "mythic";
+            });
+            if (unlockedSlots.length === 0) return prev;
+            // Roll for drop level: GS+1 (1%), GS+2 (0.5%), GS+3 (0.25%)
+            const dropLevels = [{ offset: 1, chance: 0.01 }, { offset: 2, chance: 0.005 }, { offset: 3, chance: 0.0025 }];
+            let droppedOffset = 0;
+            for (const { offset, chance } of dropLevels) {
+              if (Math.random() < chance) { droppedOffset = offset; break; }
+            }
+            if (droppedOffset === 0) return prev;
+            // Slot weighting: (maxGS - slotGS) + 1, favoring lagging slots
+            const highestGS = Math.max(...unlockedSlots.map((sl) => prev.equippedGear[sl]?.gearScore ?? 0));
+            const weights = unlockedSlots.map((sl) => ({ sl, w: (highestGS - (prev.equippedGear[sl]?.gearScore ?? 0)) + 1 }));
+            const totalW = weights.reduce((s, x) => s + x.w, 0);
+            let rand = Math.random() * totalW;
+            let chosenSlot: GearSlot = unlockedSlots[0];
+            for (const { sl, w } of weights) { rand -= w; if (rand <= 0) { chosenSlot = sl; break; } }
+            const equippedGs = prev.equippedGear[chosenSlot]?.gearScore ?? 0;
+            const newGs = equippedGs + droppedOffset;
+            const emptySlot = prev.bag.findIndex((s) => s === null);
+            if (emptySlot === -1) { addLog(`⭐ GS ${newGs} ${chosenSlot} dropped but bag is full!`, "log-muted"); return prev; }
+            const gsItem = generateGearItem(chosenSlot, "eternal", "mythic", newGs);
+            const newBag = [...prev.bag];
+            newBag[emptySlot] = gsItem;
+            addLog(`⭐ GS ${newGs} ${gsItem.name} dropped from boss!`, "log-gem");
+            showNotif(`⭐ GS ${newGs} DROP!`);
+            return { ...prev, bag: newBag };
+          });
           // Pity-based book drop: 2% base + 1% per consecutive miss, resets on drop
           setState((prev) => {
             const dropChance = 0.02 + prev.bookDropPity * 0.01;

@@ -151,13 +151,19 @@ export default function GearTab({ state, actions, nerdMode }: Props) {
             <div style={{ fontSize: 28, textAlign: "center", marginBottom: 8 }}>{detailGear.emoji}</div>
             <div style={{ fontSize: 11, color: RARITY_COLORS[detailGear.rarity], textAlign: "center", marginBottom: 4 }}>
               {detailGear.name}
+              {nerdMode && detailGear.gearScore !== undefined && detailGear.gearScore > 0 && (
+                <span style={{ marginLeft: 6, fontSize: 9, color: "#ffd700", fontFamily: "'Press Start 2P', monospace" }}>[GS:{detailGear.gearScore}]</span>
+              )}
             </div>
             <div style={{ fontSize: 9, color: "#aaa", textAlign: "center", marginBottom: 12 }}>
               {RARITY_LABELS[detailGear.rarity]} · {TIER_LABELS[detailGear.tier]}
+              {nerdMode && detailGear.gearScore !== undefined && detailGear.gearScore === 0 && (
+                <span style={{ marginLeft: 6, color: "#ffd700" }}>[GS:0 — gateway]</span>
+              )}
             </div>
             <div style={{ borderTop: "1px solid #333", paddingTop: 10, marginBottom: 10 }}>
               {(() => {
-                const range = nerdMode ? statRange(detailGear.tier, detailGear.rarity) : null;
+                const range = nerdMode ? statRange(detailGear.tier, detailGear.rarity, detailGear.gearScore ?? 0) : null;
                 return detailGear.stats.map((s, i) => (
                   <div key={i} style={{ marginBottom: 5, fontFamily: "'VT323', monospace" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#88ff88" }}>
