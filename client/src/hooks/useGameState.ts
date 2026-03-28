@@ -1324,8 +1324,8 @@ export function useGameState(
           const newBag = [...prev.bag];
           for (const sl of SLOTS) {
             const equipped = newEquipped[sl];
-            if (!equipped || equipped.gearScore === undefined) continue; // only swap if currently wearing a GS item
-            const equippedGs = equipped.gearScore;
+            // Treat no GS (undefined or no equipped item) as GS 0 — any GS item in bag should trigger swap
+            const equippedGs = equipped?.gearScore ?? 0;
             // Find the highest GS bag item for this slot that beats the equipped GS
             let bestIdx = -1;
             let bestGs = equippedGs;
@@ -1334,19 +1334,17 @@ export function useGameState(
               if (!b || !('isGear' in b)) continue;
               const g = b as GearItem;
               if (g.slot !== sl) continue;
-              if (g.gearScore === undefined) continue;
+              // Only consider items that actually have a GS value >= 1
+              if (g.gearScore === undefined || g.gearScore < 1) continue;
               if (g.gearScore > bestGs) { bestGs = g.gearScore; bestIdx = i; }
             }
             if (bestIdx >= 0) {
-              // Swap: put old equipped into bag slot, equip new one
-              newBag[bestIdx] = equipped;
-              newEquipped = { ...newEquipped, [sl]: newBag[bestIdx] === equipped ? newBag[bestIdx] : prev.bag[bestIdx] as GearItem };
-              // Actually equip the new item
-              const newItem = prev.bag[bestIdx] as GearItem;
-              newBag[bestIdx] = equipped;
+              // Swap: put old equipped into the bag slot, equip the new GS item
+              const newItem = newBag[bestIdx] as GearItem;
+              newBag[bestIdx] = equipped ?? null; // old equipped goes back to bag (null if slot was empty)
               newEquipped[sl] = newItem;
               changed = true;
-              addLog(`⭐ Auto-equipped GS ${newItem.gearScore} ${newItem.name} (was GS ${equippedGs})`, "log-gem");
+              addLog(`⭐ Auto-equipped GS ${newItem.gearScore} ${newItem.name} (was GS ${equippedGs === 0 ? "none" : equippedGs})`, "log-gem");
             }
           }
           return changed ? { ...prev, equippedGear: newEquipped, bag: newBag } : prev;
@@ -1571,6 +1569,7 @@ export function useGameState(
               const bagToBreak = prev.bag
                 .filter((b): b is GearItem => {
                   if (!b || !('isGear' in b)) return false;
+                  if ('isBook' in b) return false; // NEVER auto-break books
                   const g = b as GearItem;
                   if (!rarityLte(g.rarity, ai.anvilBreakMaxRarity!)) return false;
                   if (ai.anvilProtectGS && g.gearScore !== undefined) return false; // protect GS gear
@@ -1580,6 +1579,7 @@ export function useGameState(
               // Stash gear to break (if enabled)
               const stashToBreak: GearItem[] = ai.anvilBreakFromStash
                 ? prev.stash.filter((g) => {
+                    if ('isBook' in g) return false; // NEVER auto-break books
                     if (!rarityLte(g.rarity, ai.anvilBreakMaxRarity!)) return false;
                     if (ai.anvilProtectGS && g.gearScore !== undefined) return false;
                     return true;
@@ -1685,7 +1685,11 @@ export function useGameState(
             setState((prev) => {
               if (prev.activeVendor || prev.activeAnvil || prev.activeFence) return prev;
               const toSell = prev.bag
-                .filter((b): b is GearItem => b !== null && 'isGear' in b && rarityLte((b as GearItem).rarity, ai.fenceSellMaxRarity!))
+                .filter((b): b is GearItem => {
+                  if (!b || !('isGear' in b)) return false;
+                  if ('isBook' in b) return false; // NEVER auto-sell books
+                  return rarityLte((b as GearItem).rarity, ai.fenceSellMaxRarity!);
+                })
                 .map((g) => g as GearItem);
               if (toSell.length === 0) return prev;
               const newBag = [...prev.bag];
