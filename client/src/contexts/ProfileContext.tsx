@@ -159,11 +159,30 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
         .eq("id", user.id)
         .single();
 
-      if (error || !data) {
-        const username = user.user_metadata?.username ?? user.email?.split("@")[0] ?? "Adventurer";
-        const avatar = user.user_metadata?.avatar ?? "⚔️";
-        const migrated = await migrateLegacyProfile(user.id, username, avatar);
-        const newProfile = migrated ?? makeDefaultProfile(user.id, username, avatar);
+      const username = user.user_metadata?.username ?? user.email?.split("@")[0] ?? "Adventurer";
+      const avatar = user.user_metadata?.avatar ?? "⚔️";
+
+      // Always check for a local save first — if one exists it wins and overwrites the cloud.
+      // This handles the case where a player has an existing local save on a new device
+      // and logs into an account that already has a cloud save from a different device.
+      const localMigration = await migrateLegacyProfile(user.id, username, avatar);
+
+      if (localMigration) {
+        // Local save found — push it to Supabase regardless of what's already there.
+        await supabase.from("profiles").upsert({
+          id: user.id,
+          username: localMigration.name,
+          avatar: localMigration.avatar,
+          last_played: new Date().toISOString(),
+          save_data: localMigration,
+        });
+        // Clear local save so this one-time override never fires again.
+        localStorage.removeItem(LEGACY_PROFILES_KEY);
+        localStorage.removeItem(LEGACY_ACTIVE_KEY);
+        setProfile(localMigration);
+      } else if (error || !data) {
+        // No local save and no cloud save — brand new account.
+        const newProfile = makeDefaultProfile(user.id, username, avatar);
         await supabase.from("profiles").upsert({
           id: user.id,
           username: newProfile.name,
@@ -171,12 +190,9 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
           last_played: new Date().toISOString(),
           save_data: newProfile,
         });
-        if (migrated) {
-          localStorage.removeItem(LEGACY_PROFILES_KEY);
-          localStorage.removeItem(LEGACY_ACTIVE_KEY);
-        }
         setProfile(newProfile);
       } else {
+        // No local save — load from cloud as normal.
         const saved = (data.save_data ?? {}) as Partial<Profile>;
         const hydrated: Profile = {
           ...makeDefaultProfile(user.id, data.username, data.avatar),
