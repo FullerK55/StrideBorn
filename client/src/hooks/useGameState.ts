@@ -520,6 +520,7 @@ export interface GameState {
   enhancementXpPool: number; // global pool of Enhancement XP from Anvil breakdowns
   dungeonDifficulties: Record<string, DungeonDifficulty>; // per-dungeon difficulty level
   pendingDifficultyUnlock: { dungeonId: string; nextDifficulty: DungeonDifficulty } | null; // prompt to advance difficulty
+  dismissedDifficultyFloor: Record<string, number>; // per-dungeon: the maxFloor that was already prompted/dismissed so we don't re-fire
 }
 
 export interface OfflineSummary {
@@ -1035,6 +1036,7 @@ function buildInitialState(
     enhancementXpPool: (profile as Profile & { enhancementXpPool?: number }).enhancementXpPool ?? 0,
     dungeonDifficulties: (profile as Profile & { dungeonDifficulties?: Record<string, DungeonDifficulty> }).dungeonDifficulties ?? {},
     pendingDifficultyUnlock: null,
+    dismissedDifficultyFloor: (profile as Profile & { dismissedDifficultyFloor?: Record<string, number> }).dismissedDifficultyFloor ?? {},
   };
 }
 
@@ -1357,19 +1359,20 @@ export function useGameState(
       setState((prev) => {
         const currentDiff: DungeonDifficulty = (prev.dungeonDifficulties[prev.currentDungeon] as DungeonDifficulty | undefined) ?? "easy";
         const cfg = DIFFICULTY_CONFIG[currentDiff];
-        if (cfg.maxFloor !== null && floor >= cfg.maxFloor && cfg.next && !prev.pendingDifficultyUnlock) {
+        const alreadyPrompted = prev.dismissedDifficultyFloor[prev.currentDungeon] === cfg.maxFloor;
+        if (cfg.maxFloor !== null && floor >= cfg.maxFloor && cfg.next && !prev.pendingDifficultyUnlock && !alreadyPrompted) {
           if (leaveAloneAdvancedRef.current?.autoAdvanceDifficulty) {
             // Silent auto-advance — no popup, no walk pause
             const nextDiff = cfg.next;
             const newDiffs = { ...prev.dungeonDifficulties, [prev.currentDungeon]: nextDiff };
             addLog(`🏆 Auto-advanced to ${DIFFICULTY_CONFIG[nextDiff].label} difficulty! (floor ${floor})`, "log-gem");
             showNotif(`🏆 AUTO: ${DIFFICULTY_CONFIG[nextDiff].label.toUpperCase()} UNLOCKED!`);
-            return { ...prev, dungeonDifficulties: newDiffs, currentFloor: 0 };
+            return { ...prev, dungeonDifficulties: newDiffs, currentFloor: 0, dismissedDifficultyFloor: { ...prev.dismissedDifficultyFloor, [prev.currentDungeon]: cfg.maxFloor } };
           }
           addLog(`🏆 You've cleared floor ${floor} on ${cfg.label}! You can now advance to ${DIFFICULTY_CONFIG[cfg.next].label}.`, "log-gem");
           showNotif(`🏆 ${cfg.label.toUpperCase()} CLEARED! Advance to ${DIFFICULTY_CONFIG[cfg.next].label}?`);
           stopWalkInterval();
-          return { ...prev, pendingDifficultyUnlock: { dungeonId: prev.currentDungeon, nextDifficulty: cfg.next } };
+          return { ...prev, pendingDifficultyUnlock: { dungeonId: prev.currentDungeon, nextDifficulty: cfg.next }, dismissedDifficultyFloor: { ...prev.dismissedDifficultyFloor, [prev.currentDungeon]: cfg.maxFloor } };
         }
         return prev;
       });
@@ -2624,6 +2627,7 @@ export function useGameState(
   }, [addLog, showNotif, startWalkInterval]);
 
   const dismissDifficultyUnlock = useCallback(() => {
+    // dismissedDifficultyFloor is already set when the prompt was created, so just clear the modal
     setState((prev) => ({ ...prev, pendingDifficultyUnlock: null }));
     startWalkInterval();
   }, [startWalkInterval]);
