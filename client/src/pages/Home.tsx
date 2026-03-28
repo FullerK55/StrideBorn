@@ -758,53 +758,111 @@ export default function Home() {
           )}
 
           {/* DUNGEONS TAB */}
-          {activeTab === "dungeons" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {state.dungeons.map((d) => (
-                <div
-                  key={d.id}
-                  onClick={() => d.unlocked && !isActive && actions.selectDungeon(d.id)}
-                  style={{
-                    background: "#0a0a1a",
-                    border: `2px solid ${d.id === state.currentDungeon ? "var(--gold)" : "var(--game-border)"}`,
-                    padding: 10,
-                    cursor: d.unlocked && !isActive ? "pointer" : "not-allowed",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    opacity: d.unlocked ? 1 : 0.4,
-                    transition: "all 0.15s",
-                  }}
-                >
-                  <div style={{ fontSize: 28, flexShrink: 0 }}>{d.icon}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                      <div className="pixel-font" style={{ fontSize: 8, color: "var(--gold)" }}>
-                        {d.name}{!d.unlocked ? ` 🔒 (floor ${d.unlockFloor})` : ""}
-                        {d.id === state.currentDungeon ? " ✓" : ""}
+          {activeTab === "dungeons" && (() => {
+            const DIFF_ORDER: import('@/hooks/useGameState').DungeonDifficulty[] = ["easy","medium","hard","challenging","insane","endless"];
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {state.dungeons.map((d) => {
+                  const currentDiff = (state.dungeonDifficulties[d.id] as import('@/hooks/useGameState').DungeonDifficulty | undefined) ?? 'easy';
+                  const currentIdx = DIFF_ORDER.indexOf(currentDiff);
+                  const cfg = DIFFICULTY_CONFIG[currentDiff];
+                  return (
+                    <div
+                      key={d.id}
+                      style={{
+                        background: "#0a0a1a",
+                        border: `2px solid ${d.id === state.currentDungeon ? "var(--gold)" : "var(--game-border)"}`,
+                        padding: 10,
+                        opacity: d.unlocked ? 1 : 0.4,
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      {/* Header row — click to select dungeon (base only) */}
+                      <div
+                        onClick={() => d.unlocked && !isActive && actions.selectDungeon(d.id)}
+                        style={{ display: "flex", alignItems: "center", gap: 10, cursor: d.unlocked && !isActive ? "pointer" : "default", marginBottom: d.unlocked ? 8 : 0 }}
+                      >
+                        <div style={{ fontSize: 28, flexShrink: 0 }}>{d.icon}</div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                            <div className="pixel-font" style={{ fontSize: 8, color: "var(--gold)" }}>
+                              {d.name}{!d.unlocked ? ` 🔒 (floor ${d.unlockFloor})` : ""}
+                              {d.id === state.currentDungeon ? " ✓" : ""}
+                            </div>
+                            {d.unlocked && (
+                              <span style={{ fontSize: 9, fontWeight: 700, color: cfg.color, border: `1px solid ${cfg.color}40`, borderRadius: 4, padding: "1px 5px", background: `${cfg.color}15` }}>
+                                {cfg.label.toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 13, color: "var(--game-muted)" }}>{d.desc}</div>
+                          <div style={{ fontSize: 12, color: "var(--gem)", marginTop: 2 }}>{d.drops.join(" · ")}</div>
+                        </div>
                       </div>
-                      {d.unlocked && (() => {
-                        const diff = (state.dungeonDifficulties[d.id] as import('@/hooks/useGameState').DungeonDifficulty | undefined) ?? 'easy';
-                        const cfg = DIFFICULTY_CONFIG[diff];
-                        return (
-                          <span style={{ fontSize: 9, fontWeight: 700, color: cfg.color, border: `1px solid ${cfg.color}40`, borderRadius: 4, padding: "1px 5px", background: `${cfg.color}15` }}>
-                            {cfg.label.toUpperCase()}
-                          </span>
-                        );
-                      })()}
+                      {/* Difficulty selector — always visible for unlocked dungeons */}
+                      {d.unlocked && (
+                        <div>
+                          <div style={{ fontSize: 9, color: "var(--game-muted)", fontFamily: "'Press Start 2P', monospace", marginBottom: 5 }}>DIFFICULTY</div>
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                            {DIFF_ORDER.map((diff, idx) => {
+                              const dcfg = DIFFICULTY_CONFIG[diff];
+                              const isActive2 = diff === currentDiff;
+                              const isUnlocked = idx <= currentIdx;
+                              const canUpgrade = idx > currentIdx;
+                              return (
+                                <button
+                                  key={diff}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (canUpgrade) actions.setDifficulty(d.id, diff);
+                                  }}
+                                  style={{
+                                    fontFamily: "'Press Start 2P', monospace",
+                                    fontSize: 7,
+                                    padding: "3px 7px",
+                                    borderRadius: 3,
+                                    cursor: canUpgrade ? "pointer" : "default",
+                                    border: isActive2
+                                      ? `2px solid ${dcfg.color}`
+                                      : isUnlocked
+                                        ? `1px solid ${dcfg.color}60`
+                                        : "1px solid rgba(80,80,120,0.3)",
+                                    background: isActive2
+                                      ? `${dcfg.color}25`
+                                      : isUnlocked
+                                        ? `${dcfg.color}0a`
+                                        : "rgba(20,20,40,0.5)",
+                                    color: isActive2
+                                      ? dcfg.color
+                                      : isUnlocked
+                                        ? `${dcfg.color}99`
+                                        : "rgba(80,80,120,0.5)",
+                                    opacity: canUpgrade ? 1 : isUnlocked ? 0.7 : 0.35,
+                                    transition: "all 0.12s",
+                                  }}
+                                  title={canUpgrade ? `Upgrade to ${dcfg.label}` : isActive2 ? "Current difficulty" : isUnlocked ? "Already passed" : "Not yet reached"}
+                                >
+                                  {isActive2 ? "▶ " : canUpgrade ? "↑ " : ""}{dcfg.label.toUpperCase()}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div style={{ fontSize: 9, color: "rgba(100,100,150,0.6)", marginTop: 5, fontFamily: "'VT323', monospace" }}>
+                            {currentDiff !== "endless" ? "Tap a higher tier to upgrade. Cannot decrease." : "Max difficulty reached."}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div style={{ fontSize: 13, color: "var(--game-muted)" }}>{d.desc}</div>
-                    <div style={{ fontSize: 12, color: "var(--gem)", marginTop: 2 }}>{d.drops.join(" · ")}</div>
+                  );
+                })}
+                {isActive && (
+                  <div style={{ fontSize: 12, color: "var(--orange)", textAlign: "center", marginTop: 4 }}>
+                    Return to base to change dungeon · Difficulty can be changed anytime
                   </div>
-                </div>
-              ))}
-              {isActive && (
-                <div style={{ fontSize: 12, color: "var(--orange)", textAlign: "center", marginTop: 4 }}>
-                  Return to base to change dungeon
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            );
+          })()}
 
           {/* LOG TAB */}
           {activeTab === "log" && (

@@ -581,6 +581,7 @@ export interface GameActions {
   saveNow: () => void;
   advanceDifficulty: () => void;
   dismissDifficultyUnlock: () => void;
+  setDifficulty: (dungeonId: string, difficulty: DungeonDifficulty) => void;
 }
 
 export interface LootPopup {
@@ -2596,6 +2597,20 @@ export function useGameState(
     setState((prev) => ({ ...prev, lastRerollResult: null }));
   }, []);
 
+  const setDifficulty = useCallback((dungeonId: string, difficulty: DungeonDifficulty) => {
+    setState((prev) => {
+      const currentDiff: DungeonDifficulty = (prev.dungeonDifficulties[dungeonId] as DungeonDifficulty | undefined) ?? "easy";
+      const currentOrder = ["easy", "medium", "hard", "challenging", "insane", "endless"];
+      const currentIdx = currentOrder.indexOf(currentDiff);
+      const newIdx = currentOrder.indexOf(difficulty);
+      if (newIdx <= currentIdx) return prev; // never decrease
+      const newDiffs = { ...prev.dungeonDifficulties, [dungeonId]: difficulty };
+      addLog(`🏆 Manually set ${dungeonId} to ${DIFFICULTY_CONFIG[difficulty].label} difficulty!`, "log-gem");
+      showNotif(`🏆 ${DIFFICULTY_CONFIG[difficulty].label.toUpperCase()} ACTIVATED!`);
+      return { ...prev, dungeonDifficulties: newDiffs };
+    });
+  }, [addLog, showNotif]);
+
   const advanceDifficulty = useCallback(() => {
     setState((prev) => {
       if (!prev.pendingDifficultyUnlock) return prev;
@@ -2699,6 +2714,7 @@ export function useGameState(
       saveNow,
       advanceDifficulty,
       dismissDifficultyUnlock,
+      setDifficulty,
     },
   ];
 }
