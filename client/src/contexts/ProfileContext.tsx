@@ -33,6 +33,7 @@ export interface Profile {
   bookVendorPity: number; // floors cleared after floor 200 without book vendor spawning
   enhancementXpPool: number; // global pool of Enhancement XP from Anvil
   dungeonDifficulties: Record<string, DungeonDifficulty>; // per-dungeon difficulty
+  dismissedDifficultyFloor: Record<string, number>; // per-dungeon: max floor already prompted, so we don't re-fire
   // Offline progress tracking
   offlineTimestamp: number | null;
   offlineFloor: number | null;
@@ -65,6 +66,7 @@ function loadProfiles(): Profile[] {
       bookVendorPity: typeof p.bookVendorPity === 'number' ? p.bookVendorPity : 0,
       enhancementXpPool: typeof (p as Profile & { enhancementXpPool?: number }).enhancementXpPool === 'number' ? (p as Profile & { enhancementXpPool?: number }).enhancementXpPool! : 0,
       dungeonDifficulties: (p as Profile & { dungeonDifficulties?: Record<string, DungeonDifficulty> }).dungeonDifficulties ?? {},
+      dismissedDifficultyFloor: (p as Profile & { dismissedDifficultyFloor?: Record<string, number> }).dismissedDifficultyFloor ?? {},
       stash: Array.isArray(p.stash) ? p.stash : [],
       runs: p.runs ?? 0,
       lives: p.lives ?? 1,
@@ -114,6 +116,7 @@ function createProfile(name: string, avatar: string): Profile {
     bookVendorPity: 0,
     enhancementXpPool: 0,
     dungeonDifficulties: {},
+    dismissedDifficultyFloor: {},
     offlineTimestamp: null,
     offlineFloor: null,
     offlineDungeon: null,

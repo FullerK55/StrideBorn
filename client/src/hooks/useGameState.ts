@@ -2712,6 +2712,7 @@ export function useGameState(
       bookDropPity: s.bookDropPity,
       enhancementXpPool: s.enhancementXpPool,
       dungeonDifficulties: s.dungeonDifficulties,
+      dismissedDifficultyFloor: s.dismissedDifficultyFloor,
       ...offlineData,
     });
     setLastSaved(Date.now());
